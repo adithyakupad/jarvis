@@ -5,7 +5,7 @@ import { ContextPacketSchema } from "./context.js";
 
 const nonEmptyText = z.string().trim().min(1);
 
-export const PlanProposalSchema = z.object({
+export const PlanProposalFieldsSchema = z.object({
   objective: nonEmptyText,
   currentState: nonEmptyText,
   steps: z.array(nonEmptyText).min(1),
@@ -14,6 +14,14 @@ export const PlanProposalSchema = z.object({
   completionTest: nonEmptyText,
   revision: z.number().int().positive(),
   providerSessionId: z.string().trim().min(1).nullable(),
+  contextStatus: z.enum(["sufficient", "needs_more_context"]).optional(),
+  followUpQuestion: nonEmptyText.nullable().optional(),
+});
+
+export const PlanProposalSchema = PlanProposalFieldsSchema.superRefine((proposal, context) => {
+  if (proposal.contextStatus === "needs_more_context" && !proposal.followUpQuestion) {
+    context.addIssue({ code: "custom", path: ["followUpQuestion"], message: "A focused follow-up question is required when more context is needed." });
+  }
 });
 
 export const RunStatusSchema = z.enum([

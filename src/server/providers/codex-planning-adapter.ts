@@ -1,6 +1,6 @@
 import { Codex } from "@openai/codex-sdk";
 
-import { PlanProposalSchema } from "../../shared/runs.js";
+import { PlanProposalFieldsSchema, PlanProposalSchema } from "../../shared/runs.js";
 import type {
   AgentAdapter,
   AgentEventHandler,
@@ -12,12 +12,12 @@ import type {
 import { detectCodex } from "./detection.js";
 import { NodeProcessRunner, type ProcessRunner } from "./process-runner.js";
 
-const proposalBodySchema = PlanProposalSchema.omit({ revision: true, providerSessionId: true });
+const proposalBodySchema = PlanProposalFieldsSchema.omit({ revision: true, providerSessionId: true });
 
 const proposalJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["objective", "currentState", "steps", "expectedScope", "risks", "completionTest"],
+  required: ["objective", "currentState", "steps", "expectedScope", "risks", "completionTest", "contextStatus", "followUpQuestion"],
   properties: {
     objective: { type: "string", minLength: 1 },
     currentState: { type: "string", minLength: 1 },
@@ -25,6 +25,8 @@ const proposalJsonSchema = {
     expectedScope: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
     risks: { type: "array", items: { type: "string", minLength: 1 } },
     completionTest: { type: "string", minLength: 1 },
+    contextStatus: { type: "string", enum: ["sufficient", "needs_more_context"] },
+    followUpQuestion: { anyOf: [{ type: "string", minLength: 1 }, { type: "null" }] },
   },
 } as const;
 
@@ -43,9 +45,11 @@ export function buildPlanningPrompt(input: InspectionRequest): string {
     );
   }
   if (input.contextPacket) {
+    const { context, ...structuredContext } = input.contextPacket;
     boundary.push(
-      "Replan using the context below while keeping three categories explicit in currentState, steps, scope, and risks: (1) USER-SUPPLIED CONTEXT—claims and symptoms from the packet; (2) REPOSITORY-CONFIRMED FINDINGS—facts you verify in the repository; (3) UNRESOLVED ASSUMPTIONS OR QUESTIONS—anything supported by neither source. Never present user claims as repository-confirmed facts or invent files for external or fictional subsystems.",
-      `--- BEGIN USER-SUPPLIED CONTEXT PACKET ---\n${JSON.stringify(input.contextPacket, null, 2)}\n--- END USER-SUPPLIED CONTEXT PACKET ---`,
+      "First assess whether the user-supplied context identifies the problem adequately enough to map it to repository evidence or a bounded next step. Consider plausible explanations internally, but do not present guesses as facts. If the problem remains ambiguous, set contextStatus to needs_more_context and ask exactly one smallest, specific follow-up question in followUpQuestion; do not return a generic checklist. Otherwise set contextStatus to sufficient and followUpQuestion to null. Keep three categories explicit in currentState, steps, scope, and risks: (1) USER-SUPPLIED CONTEXT—claims and symptoms from the packet; (2) REPOSITORY-CONFIRMED FINDINGS—facts you verify in the repository; (3) UNRESOLVED ASSUMPTIONS OR QUESTIONS—anything supported by neither source. Never present user claims as repository-confirmed facts or invent files for external or fictional subsystems.",
+      ...(context ? [`USER-SUPPLIED CONTEXT\n${context}`] : []),
+      ...(Object.keys(structuredContext).length > 0 ? [`OPTIONAL STRUCTURED DETAILS\n${JSON.stringify(structuredContext, null, 2)}`] : []),
     );
   }
   return boundary.join("\n\n");

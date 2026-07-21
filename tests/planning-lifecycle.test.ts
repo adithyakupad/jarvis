@@ -287,6 +287,14 @@ describe("Gate 2 planning lifecycle", () => {
     expect(context.adapter.executeCalls).toBe(0);
   });
 
+  it("preserves normalized freeform context without artificial structured fields", async () => {
+    const context = fixture([proposal(1), proposal(2)]);
+    await context.planning.inspect("mk-42", "Resolve icing.");
+    const revised = await context.planning.addContext("run-mk42", 1, { context: "  My suit freezes at high altitude.  " });
+    expect(revised.context_packet).toEqual({ context: "My suit freezes at high altitude." });
+    expect(context.adapter.inspectionRequests[1]?.contextPacket).toEqual({ context: "My suit freezes at high altitude." });
+  });
+
   it("keeps submitted context when provider replanning fails", async () => {
     const context = fixture([proposal(1), { objective: "malformed" }]);
     await context.planning.inspect("mk-42", "Resolve icing.");

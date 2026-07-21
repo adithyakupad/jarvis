@@ -56,6 +56,8 @@ function proposal(revision: number): PlanProposal {
     completionTest: "Focused armor diagnostics pass and changed files remain inside the approved scope.",
     revision,
     providerSessionId: "session-mk42",
+    contextStatus: "sufficient",
+    followUpQuestion: null,
   });
 }
 

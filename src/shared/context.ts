@@ -10,6 +10,7 @@ const optionalList = z.preprocess(
 );
 
 export const ContextPacketFieldsSchema = z.object({
+  context: optionalText,
   problem: optionalText,
   expectedBehavior: optionalText,
   actualBehavior: optionalText,

@@ -99,4 +99,18 @@ describe("HTTP client service", () => {
     expect(presentation).toMatchObject({ run: { id: "run-1", proposal_revision: 2, context_packet: contextPacket }, revisions: [{ revision: 1 }, { revision: 2 }] });
     expect(fetchMock).toHaveBeenLastCalledWith("/api/runs/run-1/context", expect.objectContaining({ method: "POST", body: JSON.stringify({ currentRevision: 1, ...contextPacket }) }));
   });
+
+  it("submits freeform context without manufacturing structured fields", async () => {
+    vi.stubGlobal("window", { localStorage: { getItem: () => null, setItem: () => undefined } });
+    const freeform = { context: "My suit starts freezing at high altitudes when I fly." };
+    const revisedProposal = { ...proposal, revision: 2, contextStatus: "needs_more_context", followUpQuestion: "What material surrounds the affected actuator?" };
+    const revisedRun = { ...run, context_packet: freeform, proposal: revisedProposal, proposal_revision: 2 };
+    const fetchMock = vi.fn(async () => response({ run: revisedRun, revisions: [proposal, revisedProposal], contextPacket: freeform, currentProposal: revisedProposal }));
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new HttpJarvisClientService();
+    const result = await service.addContext("run-1", 1, freeform);
+    expect(result.run.context_packet).toEqual(freeform);
+    expect(result.run.proposal).toMatchObject({ contextStatus: "needs_more_context", followUpQuestion: "What material surrounds the affected actuator?" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/runs/run-1/context", expect.objectContaining({ body: JSON.stringify({ currentRevision: 1, context: freeform.context }) }));
+  });
 });

@@ -101,6 +101,15 @@ describe("Gate 2.5 HTTP API", () => {
     expect(context.adapter.requests[1]).toMatchObject({ instruction: "Resolve icing.", contextPacket: { problem: "Shoulder icing.", evidence: "Temperature trace drops." } });
   });
 
+  it("accepts and preserves a freeform-only context sentence", async () => {
+    const context = fixture(); await createProject(context);
+    const created = await context.app.inject({ method: "POST", url: "/api/projects/mk-42/instructions", payload: { instruction: "Resolve icing." } });
+    const runId = created.json().run.id as string;
+    const replanned = await context.app.inject({ method: "POST", url: `/api/runs/${runId}/context`, payload: { currentRevision: 1, context: "  My suit starts freezing at high altitudes when I fly.  " } });
+    expect(replanned.statusCode).toBe(200);
+    expect(replanned.json().contextPacket).toEqual({ context: "My suit starts freezing at high altitudes when I fly." });
+  });
+
   it("rejects unknown, cancelled, and stale context operations", async () => {
     const context = fixture(); await createProject(context);
     expect((await context.app.inject({ method: "POST", url: "/api/runs/missing/context", payload: { currentRevision: 1, problem: "Icing" } })).statusCode).toBe(404);
