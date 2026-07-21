@@ -24,13 +24,13 @@
 
 ## Gate 3 — Live Codex execution
 
-- [ ] Codex SDK execution
-- [ ] Normalized run events
-- [ ] SSE event streaming
-- [ ] Cancellation
-- [ ] Verification
-- [ ] Project reconciliation and append-only log
-- [ ] Run tests and commit the gate
+- [x] Codex SDK execution
+- [x] Normalized run events
+- [x] SSE event streaming
+- [x] Reliable pre-execution cancellation boundary
+- [x] Verification
+- [x] Project reconciliation and append-only log
+- [x] Run tests and commit the gate
 
 ## Gate 2.5 — Real planning interface integration
 

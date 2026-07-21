@@ -36,6 +36,7 @@ function proposal(revision: number, sessionId = "session-mk42"): PlanProposal {
     expectedScope: ["src/armor/", "tests/armor/"],
     risks: ["Do not modify propulsion controls without a new approval."],
     completionTest: "The proposed checks pass without changing files during inspection.",
+    validationCommands: [],
     revision,
     providerSessionId: sessionId,
   };

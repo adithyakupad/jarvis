@@ -93,4 +93,17 @@ export class ProjectRepository {
       return this.database.prepare("DELETE FROM projects WHERE id = ?").run(projectId).changes > 0;
     })();
   }
+
+  reconcileExecution(projectId: string, runId: string, summary: string, providerSessionId: string | null): Project {
+    const timestamp = this.clock().toISOString();
+    this.database.transaction(() => {
+      this.database.prepare("UPDATE projects SET provider_session_id=?, current_phase='execution verified', latest_result=?, current_blocker='', next_action='Review the verified change set', updated_at=? WHERE id=?")
+        .run(providerSessionId, summary, timestamp, projectId);
+      this.database.prepare("INSERT INTO project_logs (project_id, run_id, category, payload_json, created_at) VALUES (?, ?, 'execution_completed', ?, ?)")
+        .run(projectId, runId, JSON.stringify({ summary }), timestamp);
+    })();
+    const project = this.get(projectId);
+    if (!project) throw new Error(`Project '${projectId}' disappeared during reconciliation.`);
+    return project;
+  }
 }

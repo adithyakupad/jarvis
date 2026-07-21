@@ -2,11 +2,11 @@ import { z } from "zod";
 
 import { ProjectSchema, type Project } from "../shared/projects.js";
 import { ProviderAvailabilitySchema } from "../shared/providers.js";
-import { PlanProposalSchema, RunSchema, type Run } from "../shared/runs.js";
+import { PlanProposalSchema, RunEventSchema, RunSchema, type Run } from "../shared/runs.js";
 import type { CreateProjectInput, JarvisClientService, JarvisSnapshot, RepositoryValidation, RunPresentation, UiWorkflowState, UpdateProjectInput } from "./service.js";
 import { ContextPacketSchema, type ContextPacket } from "../shared/context.js";
 
-const runEnvelopeSchema = z.object({ run: RunSchema, revisions: z.array(PlanProposalSchema) });
+const runEnvelopeSchema = z.object({ run: RunSchema, revisions: z.array(PlanProposalSchema), events: z.array(RunEventSchema).default([]) });
 const projectEnvelopeSchema = z.object({ project: ProjectSchema, activeRun: runEnvelopeSchema.nullable() });
 const contextEnvelopeSchema = runEnvelopeSchema.extend({ contextPacket: ContextPacketSchema, currentProposal: PlanProposalSchema });
 
@@ -16,17 +16,21 @@ function stateFor(run: Run): UiWorkflowState {
 
 function present(envelope: z.infer<typeof runEnvelopeSchema>): RunPresentation {
   const approved = envelope.run.status === "approved";
+  const status = envelope.run.status;
   return {
     ...envelope,
     state: stateFor(envelope.run),
-    events: [], changedFiles: [], checks: [], isGate3Simulation: false,
+    events: envelope.events.map((event) => ({ id: String(event.sequence), kind: event.type.includes("command") ? "command" : event.type.includes("file") ? "file" : event.type.includes("fail") ? "error" : event.type.includes("verification") ? "verification" : "status", title: event.type.replaceAll("_", " "), detail: typeof event.payload === "object" && event.payload && "message" in event.payload ? String((event.payload as { message: unknown }).message) : JSON.stringify(event.payload), occurredAt: event.occurredAt })), changedFiles: envelope.run.execution_result?.changedFiles ?? [], checks: envelope.run.verification?.checks.map((check, index) => ({ id: String(index), label: check.command, status: check.passed ? "passed" : "failed", evidence: check.output })) ?? [], isGate3Simulation: false,
     statusMessage: approved
-      ? "Plan approved. Execution is not available until Gate 3."
-      : envelope.run.status === "cancelled"
+      ? `Proposal revision ${envelope.run.approved_proposal_revision} is approved and ready to execute.`
+      : status === "cancelled" || status === "cancelled_before_execution"
         ? "Planning was cancelled. No execution started."
-        : envelope.run.status === "failed"
-          ? String((envelope.run.failure as { message?: string } | null)?.message ?? "Planning failed.")
-          : envelope.run.status === "awaiting_approval"
+        : status === "failed"
+          ? String((envelope.run.failure as { message?: string } | null)?.message ?? "The run failed.")
+          : status === "completed" ? envelope.run.verification?.message ?? "Execution and verification completed."
+          : status === "executing" || status === "preparing_execution" ? `Executing approved proposal revision ${envelope.run.approved_proposal_revision}.`
+          : status === "verifying" ? "Verifying repository changes and approved checks."
+          : status === "awaiting_approval"
             ? `Proposal revision ${envelope.run.proposal_revision} is ready for your decision.`
             : "Inspecting the repository in read-only mode.",
   };
@@ -131,7 +135,11 @@ export class HttpJarvisClientService implements JarvisClientService {
   }
 
   async proceed(runId: string, revision: number): Promise<RunPresentation> {
-    return this.setRun(present(await this.request(`/api/runs/${encodeURIComponent(runId)}/proceed`, { method: "POST", body: JSON.stringify({ revision }) }, runEnvelopeSchema)));
+    const approved = await this.request(`/api/runs/${encodeURIComponent(runId)}/proceed`, { method: "POST", body: JSON.stringify({ revision }) }, runEnvelopeSchema);
+    this.setRun(present(approved));
+    const stopStreaming = this.streamRun(runId);
+    try { return this.setRun(present(await this.request(`/api/runs/${encodeURIComponent(runId)}/execute`, { method: "POST", body: "{}" }, runEnvelopeSchema))); }
+    finally { stopStreaming(); }
   }
 
   async cancel(runId: string): Promise<RunPresentation> {
@@ -144,7 +152,7 @@ export class HttpJarvisClientService implements JarvisClientService {
 
   private temporaryRun(projectId: string, instruction: string): RunPresentation {
     const run = RunSchema.parse({ id: "pending", project_id: projectId, provider: "codex", provider_session_id: null, instruction, proposal: null, proposal_revision: 0, approved_proposal_revision: null, approval_decision: null, status: "inspecting", failure: null, created_at: new Date().toISOString(), completed_at: null });
-    return present({ run, revisions: [] });
+    return present({ run, revisions: [], events: [] });
   }
 
   private async request<T>(path: string, init: RequestInit | undefined, schema: z.ZodType<T>): Promise<T> {
@@ -155,6 +163,14 @@ export class HttpJarvisClientService implements JarvisClientService {
       throw new Error(message.success ? message.data.error.message : `JARVIS API request failed (${response.status}).`);
     }
     return schema.parse(body);
+  }
+
+  private streamRun(runId: string): () => void {
+    if (typeof EventSource === "undefined") return () => undefined;
+    const source = new EventSource(`${this.baseUrl}/api/runs/${encodeURIComponent(runId)}/events/stream`);
+    const refresh = (): void => { void this.request(`/api/runs/${encodeURIComponent(runId)}`, undefined, runEnvelopeSchema).then((envelope) => this.setRun(present(envelope))).catch(() => undefined); };
+    for (const type of ["execution_started", "provider_message", "file_change", "command_started", "command_completed", "warning", "verification_started", "verification_result", "execution_completed", "execution_failed"]) source.addEventListener(type, refresh);
+    return () => source.close();
   }
 
   private setRun(activeRun: RunPresentation): RunPresentation { this.patch({ activeRun, error: null }); return activeRun; }

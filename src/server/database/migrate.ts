@@ -107,6 +107,8 @@ export function migrate(database: JarvisDatabase): void {
     if (!runColumns.has("context_json")) {
       database.exec("ALTER TABLE runs ADD COLUMN context_json TEXT");
     }
+    if (!runColumns.has("pre_snapshot_json")) database.exec("ALTER TABLE runs ADD COLUMN pre_snapshot_json TEXT");
+    if (!runColumns.has("post_snapshot_json")) database.exec("ALTER TABLE runs ADD COLUMN post_snapshot_json TEXT");
 
     database
       .prepare(
@@ -126,5 +128,6 @@ export function migrate(database: JarvisDatabase): void {
     database
       .prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)")
       .run(4, new Date().toISOString());
+    database.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(5, new Date().toISOString());
   })();
 }

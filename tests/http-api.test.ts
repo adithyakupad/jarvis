@@ -14,7 +14,7 @@ const databases: JarvisDatabase[] = [];
 const apps: Array<ReturnType<typeof buildApi>> = [];
 
 function proposal(revision: number): PlanProposal {
-  return { objective: "Understand validation", currentState: "Tests exist but their entry point is unclear.", steps: ["Inspect validation scripts", "Document the smallest safe clarity change"], expectedScope: ["package.json", "README.md"], risks: ["Planning only; no files change."], completionTest: "The proposal cites repository validation details.", revision, providerSessionId: "thread-real" };
+  return { objective: "Understand validation", currentState: "Tests exist but their entry point is unclear.", steps: ["Inspect validation scripts", "Document the smallest safe clarity change"], expectedScope: ["package.json", "README.md"], risks: ["Planning only; no files change."], completionTest: "The proposal cites repository validation details.", validationCommands: [], revision, providerSessionId: "thread-real" };
 }
 
 class FakeAdapter implements AgentAdapter {

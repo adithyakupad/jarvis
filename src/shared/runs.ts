@@ -12,6 +12,7 @@ export const PlanProposalFieldsSchema = z.object({
   expectedScope: z.array(nonEmptyText).min(1),
   risks: z.array(nonEmptyText),
   completionTest: nonEmptyText,
+  validationCommands: z.array(nonEmptyText).default([]),
   revision: z.number().int().positive(),
   providerSessionId: z.string().trim().min(1).nullable(),
   contextStatus: z.enum(["sufficient", "needs_more_context"]).optional(),
@@ -28,9 +29,27 @@ export const RunStatusSchema = z.enum([
   "inspecting",
   "awaiting_approval",
   "approved",
+  "preparing_execution",
+  "executing",
+  "verifying",
+  "completed",
+  "cancelled_before_execution",
   "cancelled",
   "failed",
 ]);
+
+export const RepositorySnapshotSchema = z.object({
+  canonicalPath: nonEmptyText,
+  isGitRepository: z.boolean(),
+  branch: z.string().nullable(),
+  head: z.string().nullable(),
+  files: z.record(z.string(), z.object({ status: z.string(), fingerprint: z.string().nullable() })),
+  capturedAt: z.string().datetime({ offset: true }),
+});
+
+export const ExecutionResultSchema = z.object({ summary: z.string(), providerSessionId: z.string().nullable(), succeeded: z.boolean(), changedFiles: z.array(z.string()), createdFiles: z.array(z.string()), deletedFiles: z.array(z.string()), preExistingFiles: z.array(z.string()), ambiguousFiles: z.array(z.string()) });
+export const VerificationSchema = z.object({ repositoryValid: z.boolean(), message: z.string(), checks: z.array(z.object({ command: z.string(), exitCode: z.number().nullable(), durationMs: z.number().nonnegative(), output: z.string(), passed: z.boolean() })) });
+export const RunEventSchema = z.object({ sequence: z.number().int().positive(), type: z.string(), payload: z.unknown(), occurredAt: z.string().datetime({ offset: true }) });
 
 export const ApprovalDecisionSchema = z.enum(["proceed", "cancel"]);
 
@@ -46,6 +65,10 @@ export const RunSchema = z.object({
   approval_decision: ApprovalDecisionSchema.nullable(),
   status: RunStatusSchema,
   failure: z.unknown().nullable(),
+  execution_result: ExecutionResultSchema.nullable().default(null),
+  verification: VerificationSchema.nullable().default(null),
+  pre_execution_snapshot: RepositorySnapshotSchema.nullable().default(null),
+  post_execution_snapshot: RepositorySnapshotSchema.nullable().default(null),
   context_packet: ContextPacketSchema.nullable().default(null),
   created_at: z.string().datetime({ offset: true }),
   completed_at: z.string().datetime({ offset: true }).nullable(),
@@ -54,3 +77,7 @@ export const RunSchema = z.object({
 export type PlanProposal = z.infer<typeof PlanProposalSchema>;
 export type Run = z.infer<typeof RunSchema>;
 export type RunStatus = z.infer<typeof RunStatusSchema>;
+export type RepositorySnapshot = z.infer<typeof RepositorySnapshotSchema>;
+export type ExecutionResultRecord = z.infer<typeof ExecutionResultSchema>;
+export type Verification = z.infer<typeof VerificationSchema>;
+export type RunEvent = z.infer<typeof RunEventSchema>;

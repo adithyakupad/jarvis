@@ -85,13 +85,15 @@ describe("HTTP client service", () => {
     expect(service.getSnapshot()).toMatchObject({ projects: [], providers: [], activeRun: null, hydrationStatus: "failed", error: "API unavailable" });
   });
 
-  it("keeps Proceed at the approved Gate 2 boundary", async () => {
+  it("turns Proceed into approval followed by server-controlled execution", async () => {
     vi.stubGlobal("window", { localStorage: { getItem: () => null, setItem: () => undefined } });
     const approved = { ...run, status: "approved", approval_decision: "proceed", approved_proposal_revision: 1 };
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => url.endsWith("/proceed") ? response({ run: approved, revisions: [proposal] }) : response(url.endsWith("providers") ? { providers: [] } : { projects: [] })));
+    const fetchMock = vi.fn(async (url: string) => url.endsWith("/proceed") || url.endsWith("/execute") ? response({ run: approved, revisions: [proposal] }) : response(url.endsWith("providers") ? { providers: [] } : { projects: [] }));
+    vi.stubGlobal("fetch", fetchMock);
     const service = new HttpJarvisClientService();
     const presentation = await service.proceed("run-1", 1);
-    expect(presentation).toMatchObject({ state: "approved", events: [], changedFiles: [], statusMessage: "Plan approved. Execution is not available until Gate 3." });
+    expect(presentation).toMatchObject({ state: "approved", events: [], changedFiles: [] });
+    expect(fetchMock).toHaveBeenCalledWith("/api/runs/run-1/execute", expect.objectContaining({ method: "POST", body: "{}" }));
   });
 
   it("maps context submission and restores its revised proposal", async () => {

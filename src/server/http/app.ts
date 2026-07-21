@@ -12,6 +12,7 @@ import { ProviderNotRegisteredError, AgentAdapterRegistry } from "../providers/r
 import { ProjectAlreadyExistsError, ProjectRepository } from "../repositories/projects.js";
 import { InvalidRunTransitionError, RunNotFoundError, RunRepository, StaleProposalRevisionError } from "../repositories/runs.js";
 import { PlanningInspectionError, PlanningService, ProjectNotFoundError } from "../services/planning.js";
+import { ExecutionFailedError, ExecutionService, RepositoryIdentityError } from "../services/execution.js";
 import { ProviderIdSchema, ProjectProfileSchema } from "../../shared/projects.js";
 import { inspectRepositoryPath, InvalidRepositoryPathError } from "../security/repository-path.js";
 import { ContextPacketFieldsSchema, ContextPacketSchema } from "../../shared/context.js";
@@ -29,6 +30,7 @@ const instructionBody = z.object({ instruction: z.string().trim().min(1) });
 const modifyBody = z.object({ currentRevision: z.number().int().positive(), modification: z.string().trim().min(1) });
 const proceedBody = z.object({ revision: z.number().int().positive() });
 const contextBody = ContextPacketFieldsSchema.extend({ currentRevision: z.number().int().positive() });
+const streamQuery = z.object({ replayOnly: z.enum(["true", "false"]).optional() });
 
 export interface ApiDependencies {
   database: JarvisDatabase;
@@ -36,8 +38,8 @@ export interface ApiDependencies {
   processRunner?: ProcessRunner;
 }
 
-function runResponse(runs: RunRepository, runId: string): { run: Run; revisions: PlanProposal[] } {
-  return { run: runs.require(runId), revisions: runs.proposalRevisions(runId) };
+function runResponse(runs: RunRepository, runId: string): { run: Run; revisions: PlanProposal[]; events: ReturnType<RunRepository["events"]> } {
+  return { run: runs.require(runId), revisions: runs.proposalRevisions(runId), events: runs.events(runId) };
 }
 
 export function buildApi({ database, adapters, processRunner = new NodeProcessRunner() }: ApiDependencies): FastifyInstance {
@@ -45,6 +47,7 @@ export function buildApi({ database, adapters, processRunner = new NodeProcessRu
   const projects = new ProjectRepository(database);
   const runs = new RunRepository(database);
   const planning = new PlanningService(projects, runs, adapters);
+  const execution = new ExecutionService(projects, runs, adapters, processRunner);
 
   app.get("/api/setup", async () => ({ providers: await detectProviders(processRunner), projectCount: projects.list().length }));
   app.get("/api/setup/providers", async () => ({ providers: await detectProviders(processRunner) }));
@@ -126,6 +129,26 @@ export function buildApi({ database, adapters, processRunner = new NodeProcessRu
     planning.proceed(runId, revision);
     return runResponse(runs, runId);
   });
+  app.post("/api/runs/:runId/execute", async (request) => {
+    const { runId } = runParams.parse(request.params);
+    z.object({}).strict().parse(request.body ?? {});
+    await execution.execute(runId);
+    return runResponse(runs, runId);
+  });
+  app.get("/api/runs/:runId/events", async (request) => {
+    const { runId } = runParams.parse(request.params);
+    return { events: runs.events(runId) };
+  });
+  app.get("/api/runs/:runId/events/stream", async (request, reply) => {
+    const { runId } = runParams.parse(request.params);
+    const query = streamQuery.parse(request.query);
+    const serialize = (event: ReturnType<RunRepository["events"]>[number]) => `id: ${event.sequence}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
+    const replay = runs.events(runId).map(serialize).join("");
+    if (query.replayOnly === "true") return reply.header("content-type", "text/event-stream").header("cache-control", "no-cache").send(replay);
+    reply.hijack(); reply.raw.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" }); reply.raw.write(replay);
+    const unsubscribe = runs.subscribe(runId, (event) => reply.raw.write(serialize(event)));
+    request.raw.on("close", unsubscribe);
+  });
   app.post("/api/runs/:runId/cancel", async (request) => {
     const { runId } = runParams.parse(request.params);
     planning.cancel(runId);
@@ -142,6 +165,8 @@ export function buildApi({ database, adapters, processRunner = new NodeProcessRu
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof ZodError) return reply.code(400).send({ error: { code: "validation_error", message: "Request validation failed.", issues: error.issues } });
     if (error instanceof InvalidRepositoryPathError) return reply.code(422).send({ error: { code: "filesystem_error", message: error.message } });
+    if (error instanceof RepositoryIdentityError) return reply.code(409).send({ error: { code: "repository_identity_error", message: error.message } });
+    if (error instanceof ExecutionFailedError) return reply.code(502).send({ error: { code: "execution_failure", message: error.message } });
     if (error instanceof ProjectNotFoundError || error instanceof RunNotFoundError) return reply.code(404).send({ error: { code: "not_found", message: error.message } });
     if (error instanceof ProjectAlreadyExistsError || error instanceof InvalidRunTransitionError || error instanceof StaleProposalRevisionError) return reply.code(409).send({ error: { code: "conflict", message: error.message } });
     if (error instanceof PlanningInspectionError) {

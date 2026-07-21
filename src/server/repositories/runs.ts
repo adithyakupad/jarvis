@@ -25,6 +25,9 @@ interface RunRow {
   created_at: string;
   completed_at: string | null;
   context_json: string | null;
+  verification_json: string | null;
+  pre_snapshot_json: string | null;
+  post_snapshot_json: string | null;
 }
 
 interface ProposalEventRow {
@@ -54,7 +57,11 @@ function toRun(row: RunRow): Run {
     approved_proposal_revision: row.approved_proposal_revision,
     approval_decision: row.approval_decision,
     status: row.status,
-    failure: parseJson(row.result_json),
+    failure: row.status === "failed" ? parseJson(row.result_json) : null,
+    execution_result: row.status === "failed" ? null : parseJson(row.result_json),
+    verification: parseJson(row.verification_json),
+    pre_execution_snapshot: parseJson(row.pre_snapshot_json),
+    post_execution_snapshot: parseJson(row.post_snapshot_json),
     context_packet: row.context_json === null ? null : ContextPacketSchema.parse(JSON.parse(row.context_json)),
     created_at: row.created_at,
     completed_at: row.completed_at,
@@ -62,6 +69,7 @@ function toRun(row: RunRow): Run {
 }
 
 export class RunRepository {
+  private readonly eventListeners = new Map<string, Set<(event: import("../../shared/runs.js").RunEvent) => void>>();
   constructor(
     private readonly database: JarvisDatabase,
     private readonly clock: RunClock = () => new Date(),
@@ -181,6 +189,7 @@ export class RunRepository {
   approve(runId: string, revision: number): Run {
     return this.database.transaction(() => {
       const run = this.require(runId);
+      if (run.approval_decision === "proceed" && run.approved_proposal_revision === revision && run.proposal_revision === revision && ["approved", "preparing_execution", "executing", "verifying", "completed", "failed"].includes(run.status)) return run;
       if (run.status !== "awaiting_approval") {
         throw new InvalidRunTransitionError(
           `Run '${runId}' cannot be approved while ${run.status}.`,
@@ -207,7 +216,8 @@ export class RunRepository {
   cancel(runId: string): Run {
     return this.database.transaction(() => {
       const run = this.require(runId);
-      if (run.status === "cancelled") return run;
+      if (run.status === "cancelled" || run.status === "cancelled_before_execution") return run;
+      if (["preparing_execution", "executing", "verifying", "completed"].includes(run.status)) throw new InvalidRunTransitionError("Execution has started and this provider does not support reliable cancellation.");
       if (run.status === "failed") {
         throw new InvalidRunTransitionError(`Run '${runId}' already failed.`);
       }
@@ -257,6 +267,53 @@ export class RunRepository {
     return rows.map((row) => PlanProposalSchema.parse(JSON.parse(row.payload_json)));
   }
 
+  prepareExecution(runId: string, snapshot: unknown): Run {
+    return this.database.transaction(() => {
+      const run = this.require(runId);
+      if (run.status === "preparing_execution" || run.status === "executing" || run.status === "verifying" || run.status === "completed") return run;
+      if (run.status !== "approved" || run.approved_proposal_revision !== run.proposal_revision || !run.proposal) throw new InvalidRunTransitionError(`Run '${runId}' does not have an executable current approval.`);
+      const at = this.clock().toISOString();
+      this.database.prepare("UPDATE runs SET status='preparing_execution', pre_snapshot_json=?, started_at=? WHERE id=?").run(JSON.stringify(snapshot), at, runId);
+      this.appendEvent(runId, "execution_started", { revision: run.approved_proposal_revision }, at);
+      return this.require(runId);
+    })();
+  }
+
+  setExecutionState(runId: string, status: "executing" | "verifying"): Run {
+    this.database.prepare("UPDATE runs SET status=? WHERE id=?").run(status, runId);
+    return this.require(runId);
+  }
+
+  recordExecutionEvent(runId: string, type: string, payload: unknown, occurredAt = this.clock().toISOString()): void { this.appendEvent(runId, type, payload, occurredAt); }
+
+  completeExecution(runId: string, result: unknown, verification: unknown, snapshot: unknown, providerSessionId: string | null): Run {
+    const at = this.clock().toISOString();
+    this.database.prepare("UPDATE runs SET status='completed', result_json=?, verification_json=?, post_snapshot_json=?, provider_session_id=?, completed_at=? WHERE id=?")
+      .run(JSON.stringify(result), JSON.stringify(verification), JSON.stringify(snapshot), providerSessionId, at, runId);
+    this.appendEvent(runId, "execution_completed", result, at);
+    return this.require(runId);
+  }
+
+  failExecution(runId: string, error: unknown, snapshot?: unknown, verification?: unknown): Run {
+    const at = this.clock().toISOString();
+    const failure = { message: error instanceof Error ? error.message : "Execution failed." };
+    this.database.prepare("UPDATE runs SET status='failed', result_json=?, post_snapshot_json=COALESCE(?, post_snapshot_json), verification_json=COALESCE(?, verification_json), completed_at=? WHERE id=?")
+      .run(JSON.stringify(failure), snapshot === undefined ? null : JSON.stringify(snapshot), verification === undefined ? null : JSON.stringify(verification), at, runId);
+    this.appendEvent(runId, "execution_failed", failure, at);
+    return this.require(runId);
+  }
+
+  events(runId: string): import("../../shared/runs.js").RunEvent[] {
+    this.require(runId);
+    return (this.database.prepare("SELECT sequence, type, payload_json, occurred_at FROM run_events WHERE run_id=? ORDER BY sequence").all(runId) as Array<{sequence:number;type:string;payload_json:string;occurred_at:string}>).map((row) => ({ sequence: row.sequence, type: row.type, payload: JSON.parse(row.payload_json), occurredAt: row.occurred_at }));
+  }
+
+  subscribe(runId: string, listener: (event: import("../../shared/runs.js").RunEvent) => void): () => void {
+    this.require(runId);
+    const listeners = this.eventListeners.get(runId) ?? new Set(); listeners.add(listener); this.eventListeners.set(runId, listeners);
+    return () => { listeners.delete(listener); if (!listeners.size) this.eventListeners.delete(runId); };
+  }
+
   private appendEvent(
     runId: string,
     type: string,
@@ -274,5 +331,7 @@ export class RunRepository {
          VALUES (?, ?, ?, ?, ?)`,
       )
       .run(runId, sequence, type, JSON.stringify(payload), occurredAt);
+    const event = { sequence, type, payload, occurredAt };
+    this.eventListeners.get(runId)?.forEach((listener) => listener(event));
   }
 }

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { ProviderId } from "./projects.js";
 import type { PlanProposal } from "./runs.js";
+import type { ProjectProfile } from "./projects.js";
 import type { ContextPacket } from "./context.js";
 
 export const ProviderAvailabilitySchema = z.object({
@@ -32,6 +33,10 @@ export interface ExecutionRequest {
   instruction: string;
   proposal: PlanProposal;
   providerSessionId: string | null;
+  approvedRevision: number;
+  contextPacket: ContextPacket | null;
+  projectProfile: ProjectProfile | null;
+  allowedScope: string[];
 }
 
 export interface ExecutionResult {
@@ -41,9 +46,10 @@ export interface ExecutionResult {
 }
 
 export interface AgentEvent {
-  type: string;
+  type: "provider_message" | "file_change" | "command_started" | "command_completed" | "warning";
   message: string;
   occurredAt: string;
+  data?: Record<string, unknown>;
 }
 
 export type AgentEventHandler = (event: AgentEvent) => void;
