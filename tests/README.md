@@ -11,3 +11,14 @@ Gate 1 proves:
 - persistence across database reconnection;
 - validation and duplicate-ID behavior; and
 - deterministic Codex and Claude Code detection.
+
+Gate 2 proves:
+
+- instructions create read-only inspection runs;
+- structured proposals are validated before persistence;
+- malformed output produces an explicit failed run;
+- modifications preserve the run and provider session while adding revisions;
+- stale proposal revisions cannot be approved;
+- Proceed seals approval to the exact current revision;
+- Cancel prevents approval and execution; and
+- runs, proposal history, and provider sessions survive restart.

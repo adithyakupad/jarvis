@@ -4,12 +4,12 @@ interface ColumnInfo {
   name: string;
 }
 
-function projectColumns(database: JarvisDatabase): Set<string> {
-  const rows = database.prepare("PRAGMA table_info(projects)").all() as ColumnInfo[];
+function tableColumns(database: JarvisDatabase, table: string): Set<string> {
+  const rows = database.prepare(`PRAGMA table_info(${table})`).all() as ColumnInfo[];
   return new Set(rows.map((row) => row.name));
 }
 
-function addColumnIfMissing(
+function addProjectColumnIfMissing(
   database: JarvisDatabase,
   columns: Set<string>,
   name: string,
@@ -46,10 +46,10 @@ export function migrate(database: JarvisDatabase): void {
       );
     `);
 
-    const columns = projectColumns(database);
-    addColumnIfMissing(database, columns, "repository_path", "TEXT NOT NULL DEFAULT ''");
-    addColumnIfMissing(database, columns, "provider", "TEXT NOT NULL DEFAULT 'codex'");
-    addColumnIfMissing(database, columns, "provider_session_id", "TEXT");
+    const columns = tableColumns(database, "projects");
+    addProjectColumnIfMissing(database, columns, "repository_path", "TEXT NOT NULL DEFAULT ''");
+    addProjectColumnIfMissing(database, columns, "provider", "TEXT NOT NULL DEFAULT 'codex'");
+    addProjectColumnIfMissing(database, columns, "provider_session_id", "TEXT");
 
     database.exec(`
       CREATE TABLE IF NOT EXISTS runs (
@@ -60,6 +60,7 @@ export function migrate(database: JarvisDatabase): void {
         instruction TEXT NOT NULL,
         proposal_json TEXT,
         proposal_revision INTEGER NOT NULL DEFAULT 0,
+        approved_proposal_revision INTEGER,
         approval_decision TEXT,
         status TEXT NOT NULL,
         result_json TEXT,
@@ -95,10 +96,20 @@ export function migrate(database: JarvisDatabase): void {
       );
     `);
 
+    const runColumns = tableColumns(database, "runs");
+    if (!runColumns.has("approved_proposal_revision")) {
+      database.exec("ALTER TABLE runs ADD COLUMN approved_proposal_revision INTEGER");
+    }
+
     database
       .prepare(
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
       )
       .run(1, new Date().toISOString());
+    database
+      .prepare(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+      )
+      .run(2, new Date().toISOString());
   })();
 }

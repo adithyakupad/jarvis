@@ -5,6 +5,6 @@ export type {
   ExecutionRequest,
   ExecutionResult,
   InspectionRequest,
-  PlanProposal,
   ProviderAvailability,
 } from "../../shared/providers.js";
+export type { PlanProposal } from "../../shared/runs.js";
