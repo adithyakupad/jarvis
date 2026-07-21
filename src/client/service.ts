@@ -60,7 +60,10 @@ export interface CreateProjectInput {
   objective: string;
   repositoryPath: string;
   provider: ProviderId;
+  notes: string;
 }
+export interface RepositoryValidation { canonicalPath: string; directoryName: string; isGitRepository: boolean; currentBranch: string | null; commonFiles: string[]; }
+export interface UpdateProjectInput { name?: string; objective?: string; repositoryPath?: string; provider?: ProviderId; notes?: string; }
 
 export class StaleProposalError extends Error {}
 export class InvalidLifecycleActionError extends Error {}
@@ -70,6 +73,9 @@ export interface JarvisClientService {
   getSnapshot(): JarvisSnapshot;
   initialize(): Promise<void>;
   createProject(input: CreateProjectInput): Promise<Project>;
+  validateRepositoryPath(path: string): Promise<RepositoryValidation>;
+  updateProject(projectId: string, input: UpdateProjectInput): Promise<Project>;
+  removeProject(projectId: string): Promise<void>;
   selectProject(projectId: string): Promise<void>;
   inspect(projectId: string, instruction: string): Promise<RunPresentation>;
   modify(runId: string, currentRevision: number, modification: string): Promise<RunPresentation>;

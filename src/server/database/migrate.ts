@@ -41,6 +41,8 @@ export function migrate(database: JarvisDatabase): void {
         latest_result TEXT NOT NULL,
         current_blocker TEXT NOT NULL,
         next_action TEXT NOT NULL,
+        notes TEXT NOT NULL DEFAULT '',
+        profile_json TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -50,6 +52,8 @@ export function migrate(database: JarvisDatabase): void {
     addProjectColumnIfMissing(database, columns, "repository_path", "TEXT NOT NULL DEFAULT ''");
     addProjectColumnIfMissing(database, columns, "provider", "TEXT NOT NULL DEFAULT 'codex'");
     addProjectColumnIfMissing(database, columns, "provider_session_id", "TEXT");
+    addProjectColumnIfMissing(database, columns, "notes", "TEXT NOT NULL DEFAULT ''");
+    addProjectColumnIfMissing(database, columns, "profile_json", "TEXT");
 
     database.exec(`
       CREATE TABLE IF NOT EXISTS runs (
@@ -119,5 +123,8 @@ export function migrate(database: JarvisDatabase): void {
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
       )
       .run(3, new Date().toISOString());
+    database
+      .prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+      .run(4, new Date().toISOString());
   })();
 }

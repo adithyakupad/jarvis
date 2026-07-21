@@ -3,7 +3,7 @@ import { z } from "zod";
 import { ProjectSchema, type Project } from "../shared/projects.js";
 import { ProviderAvailabilitySchema } from "../shared/providers.js";
 import { PlanProposalSchema, RunSchema, type Run } from "../shared/runs.js";
-import type { CreateProjectInput, JarvisClientService, JarvisSnapshot, RunPresentation, UiWorkflowState } from "./service.js";
+import type { CreateProjectInput, JarvisClientService, JarvisSnapshot, RepositoryValidation, RunPresentation, UiWorkflowState, UpdateProjectInput } from "./service.js";
 import { ContextPacketSchema, type ContextPacket } from "../shared/context.js";
 
 const runEnvelopeSchema = z.object({ run: RunSchema, revisions: z.array(PlanProposalSchema) });
@@ -66,11 +66,30 @@ export class HttpJarvisClientService implements JarvisClientService {
   }
 
   async createProject(input: CreateProjectInput): Promise<Project> {
-    const id = input.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-    const result = await this.request("/api/projects", { method: "POST", body: JSON.stringify({ id, name: input.name, objective: input.objective, repository_path: input.repositoryPath, provider: input.provider }) }, z.object({ project: ProjectSchema }));
+    const result = await this.request("/api/projects", { method: "POST", body: JSON.stringify({ name: input.name, objective: input.objective, repository_path: input.repositoryPath, provider: input.provider, notes: input.notes }) }, z.object({ project: ProjectSchema }));
     this.patch({ projects: [...this.snapshot.projects, result.project], error: null });
     await this.selectProject(result.project.id);
     return result.project;
+  }
+
+  async validateRepositoryPath(path: string): Promise<RepositoryValidation> {
+    const schema = z.object({ repository: z.object({ canonicalPath: z.string(), directoryName: z.string(), isGitRepository: z.boolean(), currentBranch: z.string().nullable(), commonFiles: z.array(z.string()) }) });
+    return (await this.request("/api/projects/validate-path", { method: "POST", body: JSON.stringify({ repository_path: path }) }, schema)).repository;
+  }
+
+  async updateProject(projectId: string, input: UpdateProjectInput): Promise<Project> {
+    const result = await this.request(`/api/projects/${encodeURIComponent(projectId)}`, { method: "PATCH", body: JSON.stringify({ ...input, repository_path: input.repositoryPath }) }, z.object({ project: ProjectSchema }));
+    this.patch({ projects: this.snapshot.projects.map((project) => project.id === projectId ? result.project : project) });
+    return result.project;
+  }
+
+  async removeProject(projectId: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" });
+    if (!response.ok) throw new Error("Project removal failed.");
+    const projects = this.snapshot.projects.filter((project) => project.id !== projectId);
+    window.localStorage.removeItem("jarvis.activeProjectId");
+    this.patch({ projects, selectedProjectId: null, activeRun: null, error: null });
+    if (projects[0]) await this.selectProject(projects[0].id);
   }
 
   async selectProject(projectId: string): Promise<void> {

@@ -9,6 +9,8 @@ import {
   type JarvisClientService,
   type JarvisSnapshot,
   type RunPresentation,
+  type RepositoryValidation,
+  type UpdateProjectInput,
   type SimulatedGate3Event,
   type UiWorkflowState,
   type VerificationCheck,
@@ -111,6 +113,18 @@ export class DeterministicMockJarvisClientService implements JarvisClientService
     this.patch({ projects: [...this.snapshot.projects, project] });
     return project;
   }
+
+  async validateRepositoryPath(path: string): Promise<RepositoryValidation> { return { canonicalPath: path, directoryName: path.split("/").at(-1) || "project", isGitRepository: true, currentBranch: "main", commonFiles: ["README.md"] }; }
+
+  async updateProject(projectId: string, input: UpdateProjectInput): Promise<Project> {
+    const current = this.snapshot.projects.find((project) => project.id === projectId);
+    if (!current) throw new Error("Project not found.");
+    const project = ProjectSchema.parse({ ...current, ...input, repository_path: input.repositoryPath ?? current.repository_path, updated_at: now() });
+    this.patch({ projects: this.snapshot.projects.map((item) => item.id === projectId ? project : item) });
+    return project;
+  }
+
+  async removeProject(projectId: string): Promise<void> { this.patch({ projects: this.snapshot.projects.filter((project) => project.id !== projectId), selectedProjectId: null, activeRun: null }); }
 
   async selectProject(projectId: string): Promise<void> {
     this.patch({ selectedProjectId: projectId, activeRun: null });

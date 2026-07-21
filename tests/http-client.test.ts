@@ -69,6 +69,14 @@ describe("HTTP client service", () => {
     expect(service.getSnapshot()).toMatchObject({ hydrationStatus: "ready", activeRun: null, selectedProjectId: "mk-42" });
   });
 
+  it("hydrates a fresh installation into a valid zero-project onboarding state", async () => {
+    vi.stubGlobal("window", { localStorage: { getItem: () => null, setItem: () => undefined } });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => response(url.endsWith("providers") ? { providers: [] } : { projects: [] })));
+    const service = new HttpJarvisClientService();
+    await service.initialize();
+    expect(service.getSnapshot()).toMatchObject({ hydrationStatus: "ready", projects: [], selectedProjectId: null, activeRun: null, projectLoading: false });
+  });
+
   it("surfaces backend failure and never creates mock data", async () => {
     vi.stubGlobal("window", { localStorage: { getItem: () => null, setItem: () => undefined } });
     vi.stubGlobal("fetch", vi.fn(async () => response({ error: { message: "API unavailable" } }, 503)));

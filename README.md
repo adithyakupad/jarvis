@@ -18,7 +18,7 @@ Create a project
 
 JARVIS v0.1 is being built in sequential, tested gates.
 
-Gates 1, 2, 2.5, and 2.6 provide:
+Gates 1, 2, 2.5, 2.6, and 2.7 provide:
 
 - A TypeScript runtime.
 - SQLite project persistence and migrations.
@@ -32,23 +32,17 @@ Gates 1, 2, 2.5, and 2.6 provide:
 - Authenticated Codex SDK planning in a read-only repository sandbox.
 - Explicit browser hydration that restores the selected project, run, proposal revisions, and Context Packet before the workspace becomes interactive.
 - Persistent user-supplied Context Packets and same-session context-aware replanning.
+- First-run provider readiness, local repository validation, read-only project profiling, and persisted project settings.
 
 The automated suite uses deterministic fake adapters. The application uses the real local API and Codex planning adapter by default. It does not execute live project changes; live Codex execution begins in Gate 3.
 
 The earlier Python implementation remains available until the TypeScript version reaches verified parity.
 
-## Example project
+## First run
 
-The examples use **MK 42**, one of Tony Stark's Iron Man suits, as the project:
+A fresh production database contains no sample projects. Open Setup, choose **Add an existing project**, paste an absolute repository path, describe what you are building, and select an installed provider. JARVIS canonicalizes and validates the path on the local server, performs a concise read-only inspection of known project files, saves the project, and opens its workspace. The repository does not need to be clean.
 
-```text
-Name: MK 42
-Objective: Upgrade and validate the MK 42 armor systems
-Repository: /Users/example/Projects/MK-42
-Provider: Codex
-```
-
-The project name is only an example. JARVIS does not include Marvel artwork, dialogue, voices, or other licensed assets.
+The browser cannot reliably provide a local server with an absolute folder path, so the developer alpha uses pasted paths. Native directory selection is planned for a future desktop wrapper.
 
 ## Requirements
 
@@ -58,34 +52,13 @@ The project name is only an example. JARVIS does not include Marvel artwork, dia
 
 Python 3.12 is needed only for the temporary legacy implementation during migration.
 
-## Run Gate 1
+## Development startup
 
 Install dependencies and compile TypeScript:
 
 ```bash
 npm install
 npm run build
-```
-
-Create MK 42 in a local SQLite database:
-
-```bash
-npm run jarvis -- \
-  --database ./data/jarvis.db \
-  project create \
-  --id mk-42 \
-  --name "MK 42" \
-  --objective "Upgrade and validate the MK 42 armor systems" \
-  --repository-path /Users/example/Projects/MK-42 \
-  --provider codex \
-  --current-phase foundation \
-  --next-action "Inspect the current armor systems"
-```
-
-Retrieve it in a new process:
-
-```bash
-npm run jarvis -- --database ./data/jarvis.db project get mk-42
 ```
 
 Detect installed providers:
@@ -116,6 +89,8 @@ npm run dev
 
 Open `http://127.0.0.1:4173`. The API binds only to `127.0.0.1:3000`, uses `data/jarvis.db` by default, and the Vite server proxies `/api` requests to it. Set `JARVIS_DATABASE_PATH` before `npm run dev:api` to use another database.
 
+SQLite and all JARVIS-owned project/run state live in that database. For an isolated installation or smoke test, use `JARVIS_DATABASE_PATH=/absolute/path/to/isolated/jarvis.db npm run dev:api`. Removing a project deletes its JARVIS record and planning history only; it never deletes or modifies the connected repository.
+
 Real mode detects local providers, loads projects from SQLite, asks authenticated Codex to inspect the selected repository read-only, persists proposal revisions and the Codex thread ID, and restores the latest project run after a browser reload. Revise plan resumes that same Codex thread. Proceed only records exact-revision approval and displays “Plan approved. Execution is not available until Gate 3.” It never edits files or fabricates execution events.
 
 Client initialization is explicit and idempotent: constructors do not launch network work, React starts one tracked initialization, and the UI remains in a hydration state until the selected project and its persisted run have been applied. Refreshing a project workspace therefore cannot treat `activeRun: null` as ready state before restoration finishes.
@@ -131,6 +106,8 @@ For explicit UI-only development with deterministic data:
 ```bash
 VITE_JARVIS_DATA_MODE=mock npm run dev
 ```
+
+This is the only built-in demo path; production mode never seeds MK 42 or silently falls back to mock data.
 
 Run all deterministic checks with `npm test`, `npm run typecheck`, and `npm run build`. The temporary Python baseline remains `python -m pytest` until TypeScript parity is complete.
 

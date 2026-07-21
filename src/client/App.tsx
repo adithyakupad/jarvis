@@ -46,6 +46,7 @@ function SetupView({ onCreated }: { onCreated: (project: Project) => void }): Re
   const { providers } = useJarvisSnapshot();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [pathStatus, setPathStatus] = useState("");
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -53,7 +54,7 @@ function SetupView({ onCreated }: { onCreated: (project: Project) => void }): Re
     setBusy(true); setError("");
     try {
       const project = await service.createProject({
-        name: String(data.get("name")), objective: String(data.get("objective")), repositoryPath: String(data.get("path")), provider: "codex",
+        name: String(data.get("name")), objective: String(data.get("objective")), repositoryPath: String(data.get("path")), provider: String(data.get("provider")) as "codex" | "claude-code", notes: String(data.get("notes") ?? ""),
       });
       onCreated(project);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Project creation failed."); }
@@ -62,11 +63,11 @@ function SetupView({ onCreated }: { onCreated: (project: Project) => void }): Re
 
   return (
     <section className="view setup-view" aria-labelledby="setup-title">
-      <header className="view-header"><p className="eyebrow">Local readiness</p><h1 id="setup-title">Make this device ready.</h1><p>Provider-aware, local by default, and explicit about every execution boundary.</p></header>
+      <header className="view-header"><p className="eyebrow">First-run setup</p><h1 id="setup-title">Add an existing project</h1><p>Connect JARVIS to a repository already on this computer. Initial inspection is read-only.</p></header>
       <ol className="readiness-steps" aria-label="Setup progress"><li className="done"><b>01</b><span>Runtime<small>Node 22.12+ ready</small></span></li><li className="done"><b>02</b><span>Providers<small>Local adapters detected</small></span></li><li><b>03</b><span>Project<small>Create a workspace</small></span></li></ol>
       <div className="setup-grid">
         <section className="surface"><div className="section-kicker">Provider matrix</div>{providers.map((provider) => <article className="provider-row" key={provider.provider}><div><h2>{provider.provider === "codex" ? "Codex" : "Claude Code"}</h2><p>{provider.detail}</p></div><span className={provider.authenticated ? "ready" : "neutral"}>{provider.installed ? "Detected" : "Unavailable"}</span></article>)}</section>
-        <form className="surface project-form" onSubmit={(event) => void submit(event)}><div className="section-kicker">New project</div><label>Project name<input name="name" defaultValue="MK 43" required /></label><label>Objective<textarea name="objective" defaultValue="Prepare and validate the next system iteration" required /></label><label>Repository path<input name="path" defaultValue="/Users/example/Projects/MK-43" required /></label>{error && <p className="inline-error" role="alert">{error}</p>}<button className="button primary" disabled={busy}>{busy ? "Creating…" : "Create project"}</button></form>
+        <form className="surface project-form" onSubmit={(event) => void submit(event)}><div className="section-kicker">Add your first project</div><label>Project name<input name="name" required /></label><label>Repository path<input name="path" placeholder="/Users/you/Projects/my-app" required onBlur={(event) => { const value = event.currentTarget.value; if (!value) return; setPathStatus("Validating repository…"); void service.validateRepositoryPath(value).then((repo) => setPathStatus(`${repo.directoryName} is ready${repo.isGitRepository ? ` · Git${repo.currentBranch ? ` · ${repo.currentBranch}` : ""}` : " · not a Git repository"}.`)).catch((cause) => setPathStatus(cause instanceof Error ? cause.message : "Repository validation failed.")); }} /></label>{pathStatus && <p className="quiet" role="status">{pathStatus}</p>}<label>What are you building?<textarea name="objective" required /></label><label>Which provider should JARVIS use?<select name="provider" defaultValue={providers.find((provider) => provider.installed)?.provider ?? "codex"}>{providers.map((provider) => <option key={provider.provider} value={provider.provider} disabled={!provider.installed}>{provider.provider === "codex" ? "Codex" : "Claude Code"}{provider.installed ? "" : " (unavailable)"}</option>)}</select></label><label>Project context <small>(optional)</small><textarea name="notes" placeholder="Persistent constraints, architecture notes, or team conventions" /></label><p className="quiet">For this developer alpha, paste an absolute local path. Native directory selection will come with the desktop wrapper.</p>{error && <p className="inline-error" role="alert">{error}</p>}<button className="button primary" disabled={busy}>{busy ? "Inspecting and saving…" : "Open workspace"}</button></form>
       </div>
     </section>
   );
@@ -83,7 +84,10 @@ function ProjectsView({ onSelect, onSetup }: { onSelect: (project: Project) => v
 }
 
 function ProjectContext({ project }: { project: Project }): ReactNode {
-  return <aside className="context-rail" aria-label="Project context"><p className="rail-label">Active project</p><h2>{project.name}</h2><p>{project.objective}</p><dl><div><dt>Provider</dt><dd>{project.provider}</dd></div><div><dt>Repository</dt><dd className="mono">{project.repository_path}</dd></div><div><dt>Current phase</dt><dd>{project.current_phase}</dd></div><div><dt>Next action</dt><dd>{project.next_action}</dd></div></dl></aside>;
+  const service = useJarvisService();
+  const [message, setMessage] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  return <aside className="context-rail" aria-label="Project context"><p className="rail-label">Active project</p><h2>{project.name}</h2><p>{project.objective}</p><dl><div><dt>Provider</dt><dd>{project.provider}</dd></div><div><dt>Repository</dt><dd className="mono">{project.repository_path}</dd></div><div><dt>Current phase</dt><dd>{project.current_phase}</dd></div><div><dt>Next action</dt><dd>{project.next_action}</dd></div></dl>{project.profile && <details><summary>Initial inspection</summary><p>{project.profile.summary}</p><strong>Repository-confirmed</strong><ul>{project.profile.repositoryFindings.map((item) => <li key={item}>{item}</li>)}</ul>{project.profile.inferredTechnologies.length > 0 && <><strong>Inferred technologies</strong><ul>{project.profile.inferredTechnologies.map((item) => <li key={item}>{item}</li>)}</ul></>}</details>}<details><summary>Edit project settings</summary><form onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); void service.updateProject(project.id, { name: String(data.get("name")), objective: String(data.get("objective")), notes: String(data.get("notes")) }).then(() => setMessage("Project settings saved.")).catch((cause) => setMessage(cause instanceof Error ? cause.message : "Settings could not be saved.")); }}><label>Name<input name="name" defaultValue={project.name} required /></label><label>Objective<textarea name="objective" defaultValue={project.objective} required /></label><label>Persistent context<textarea name="notes" defaultValue={project.notes} /></label><button className="button secondary">Save settings</button></form><hr /><p className="quiet">Removing this project deletes only JARVIS records and planning history. Repository files are never deleted.</p>{confirming ? <button type="button" className="button ghost danger" onClick={() => void service.removeProject(project.id)}>Confirm remove from JARVIS</button> : <button type="button" className="button ghost" onClick={() => setConfirming(true)}>Remove project</button>}{message && <p role="status">{message}</p>}</details></aside>;
 }
 
 function ProposalReview({ presentation, onModify, onContext, onCancel, onProceed, error }: { presentation: RunPresentation; onModify: () => void; onContext: () => void; onCancel: () => void; onProceed: (revision: number) => void; error: string }): ReactNode {
@@ -124,7 +128,7 @@ function ContextReplanForm({ presentation, busy, error, onBack, onInvalid, onSub
 function WorkspaceView({ project, onRunDetails }: { project: Project; onRunDetails: () => void }): ReactNode {
   const service = useJarvisService();
   const { activeRun } = useJarvisSnapshot();
-  const [instruction, setInstruction] = useState("Inspect the MK 42 diagnostic systems, propose the smallest safe validation update, and keep propulsion controls out of scope.");
+  const [instruction, setInstruction] = useState("");
   const [modifying, setModifying] = useState(false);
   const [addingContext, setAddingContext] = useState(false);
   const [contextBusy, setContextBusy] = useState(false);
@@ -160,12 +164,13 @@ export default function App(): ReactNode {
   const service = useJarvisService();
   const { projects, activeRun, error, hydrationStatus, projectLoading, selectedProjectId } = useJarvisSnapshot();
   const [view, setView] = useState<View>("projects");
-  const [projectId, setProjectId] = useState("mk-42");
+  const [projectId, setProjectId] = useState("");
   const project = projects.find((item) => item.id === projectId) || projects[0];
   useEffect(() => { if (hydrationStatus === "ready" && selectedProjectId) { setProjectId(selectedProjectId); setView("workspace"); } }, [hydrationStatus, selectedProjectId]);
   const select = async (selected: Project): Promise<void> => { await service.selectProject(selected.id); setProjectId(selected.id); setView("workspace"); };
   if (hydrationStatus === "not_initialized" || hydrationStatus === "hydrating") return <main className="view empty-run" aria-busy="true"><p className="eyebrow">Restoring local state</p><h1>Loading JARVIS.</h1><p>Projects and the latest persisted planning run are being restored.</p></main>;
   if (hydrationStatus === "failed") return <main className="view empty-run"><p className="eyebrow">Startup unavailable</p><h1>JARVIS could not load.</h1><p className="inline-error" role="alert">{error}</p></main>;
   if (projectLoading) return <main className="view empty-run" aria-busy="true"><p className="eyebrow">Project restoration</p><h1>Loading project context.</h1><p>The persisted run and proposal history are being restored.</p></main>;
+  if (projects.length === 0) return <AppShell view="setup" setView={() => undefined} status="idle">{error && <p className="inline-error global-error" role="alert">{error}</p>}<SetupView onCreated={select} /></AppShell>;
   return <AppShell view={view} setView={setView} status={activeRun?.state || "idle"}>{error && <p className="inline-error global-error" role="alert">{error}</p>}{view === "setup" && <SetupView onCreated={select} />}{view === "projects" && <ProjectsView onSelect={select} onSetup={() => setView("setup")} />}{view === "workspace" && project && <WorkspaceView project={project} onRunDetails={() => setView("run")} />}{view === "run" && project && <RunDetailsView project={project} onBack={() => setView("workspace")} />}</AppShell>;
 }

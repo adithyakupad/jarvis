@@ -12,6 +12,15 @@ export const ProviderIdSchema = z.enum(["codex", "claude-code"]);
 
 const nonEmptyText = z.string().trim().min(1);
 
+export const ProjectProfileSchema = z.object({
+  summary: z.string(),
+  repositoryFindings: z.array(z.string()),
+  inferredTechnologies: z.array(z.string()),
+  likelyEntryPoints: z.array(z.string()),
+  validationCommands: z.array(z.string()),
+  unresolvedQuestions: z.array(z.string()),
+});
+
 export const CreateProjectSchema = z.object({
   id: nonEmptyText,
   name: nonEmptyText,
@@ -24,6 +33,8 @@ export const CreateProjectSchema = z.object({
   latest_result: z.string().default(""),
   current_blocker: z.string().default(""),
   next_action: z.string().default(""),
+  notes: z.string().default(""),
+  profile: ProjectProfileSchema.nullable().default(null),
 });
 
 export const ProjectSchema = CreateProjectSchema.extend({
@@ -35,5 +46,6 @@ export const ProjectSchema = CreateProjectSchema.extend({
 
 export type ProjectStatus = z.infer<typeof ProjectStatusSchema>;
 export type ProviderId = z.infer<typeof ProviderIdSchema>;
+export type ProjectProfile = z.infer<typeof ProjectProfileSchema>;
 export type CreateProject = z.input<typeof CreateProjectSchema>;
 export type Project = z.infer<typeof ProjectSchema>;
