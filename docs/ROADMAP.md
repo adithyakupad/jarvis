@@ -17,7 +17,7 @@
 - [x] Read-only inspection
 - [x] Structured proposal
 - [x] Proceed
-- [x] Modify and proposal revision
+- [x] Revise plan and proposal revision
 - [x] Cancel
 - [x] Deterministic fake-adapter tests
 - [x] Run tests and commit the gate
@@ -37,7 +37,7 @@
 - [x] Loopback Fastify API over Gate 2 services
 - [x] Read-only authenticated Codex SDK planning and session resumption
 - [x] SQLite-backed React client with reload restoration
-- [x] Real Modify, Proceed, and Cancel lifecycle
+- [x] Real Revise plan, Proceed, and Cancel lifecycle
 - [x] Explicit Gate 3 execution boundary
 - [x] Deterministic API and HTTP-client coverage
 

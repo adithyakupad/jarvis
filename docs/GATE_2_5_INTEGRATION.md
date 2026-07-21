@@ -16,7 +16,7 @@ A Context Packet stores external facts that repository inspection cannot establi
 
 The UI asks “What should JARVIS know?” and accepts one sentence by default. The planner first assesses whether that sentence adequately identifies the problem. Only when it returns `needs_more_context` does the UI retain the form, display its single focused follow-up question, and offer the collapsed “Add more details” fields. This avoids forcing users to manufacture structured facts while keeping structured packets and audit history intact.
 
-**Modify** corrects or redirects a proposal. **Add Context and Replan** supplies missing symptoms, evidence, reproduction details, or constraints. Context is persisted before provider replanning, so a provider failure does not erase it. Replanning remains read-only, preserves the run and provider session, and creates the next proposal revision while retaining earlier revisions.
+**Revise plan** corrects or redirects a proposal. **Add Context and Replan** supplies missing symptoms, evidence, reproduction details, or constraints. Context is persisted before provider replanning, so a provider failure does not erase it. Replanning remains read-only, preserves the run and provider session, and creates the next proposal revision while retaining earlier revisions.
 
 Provider prompts delimit user-supplied context and require the proposal to distinguish user claims, general knowledge and inferences, repository-confirmed findings, and unresolved questions. General domain reasoning is allowed, but neither user claims nor model inferences become repository facts without inspection. Live web research is unavailable in Gate 2.6; the provider-neutral `ResearchAdapter` seam is reserved for a future cited-evidence mode.
 

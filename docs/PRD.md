@@ -13,7 +13,7 @@ Create or select project
 → give high-level instruction
 → inspect repository
 → propose plan
-→ approve, modify, or cancel
+→ approve, revise, or cancel
 → execute with selected provider
 → verify result
 → update project and append activity log
@@ -96,7 +96,7 @@ Inspection is read-only. A structured proposal must contain:
 - Risks or unresolved decisions
 - Completion test
 
-The user may Proceed, Modify, or Cancel. Approval binds to one exact proposal revision. Scope expansion requires a new proposal and approval.
+The user may Proceed, Revise plan, or Cancel. Approval binds to one exact proposal revision. Scope expansion requires a new proposal and approval.
 
 ## 8. Execution and verification
 
@@ -145,7 +145,7 @@ MK 42 is used as a thematic reference to Tony Stark's suit. No protected visual 
 ## 12. Delivery gates
 
 1. Documentation, TypeScript foundation, SQLite project persistence, provider contract, and detection.
-2. Inspection, structured proposals, Proceed/Modify/Cancel, and deterministic fake-adapter tests.
+2. Inspection, structured proposals, Proceed/Revise plan/Cancel, and deterministic fake-adapter tests.
 3. Live Codex execution, normalized events, SSE, cancellation, verification, and reconciliation.
 4. Claude Code execution, resumption, constrained permissions, and conformance tests.
 5. Four-view interface, fresh-clone verification, parity confirmation, and removal of Python.
