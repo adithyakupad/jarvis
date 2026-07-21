@@ -48,6 +48,7 @@ export interface JarvisSnapshot {
   projects: Project[];
   providers: ProviderAvailability[];
   activeRun: RunPresentation | null;
+  error: string | null;
 }
 
 export interface CreateProjectInput {
@@ -64,6 +65,7 @@ export interface JarvisClientService {
   subscribe(listener: (snapshot: JarvisSnapshot) => void): () => void;
   getSnapshot(): JarvisSnapshot;
   createProject(input: CreateProjectInput): Promise<Project>;
+  selectProject(projectId: string): Promise<void>;
   inspect(projectId: string, instruction: string): Promise<RunPresentation>;
   modify(runId: string, currentRevision: number, modification: string): Promise<RunPresentation>;
   proceed(runId: string, revision: number): Promise<RunPresentation>;

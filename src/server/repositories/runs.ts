@@ -95,6 +95,13 @@ export class RunRepository {
     return row === undefined ? null : toRun(row);
   }
 
+  latestForProject(projectId: string): Run | null {
+    const row = this.database
+      .prepare("SELECT * FROM runs WHERE project_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1")
+      .get(projectId) as RunRow | undefined;
+    return row === undefined ? null : toRun(row);
+  }
+
   require(runId: string): Run {
     const run = this.get(runId);
     if (run === null) throw new RunNotFoundError(`Run '${runId}' was not found.`);

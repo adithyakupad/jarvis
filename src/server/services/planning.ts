@@ -4,6 +4,7 @@ import { PlanProposalSchema, type Run } from "../../shared/runs.js";
 import { AgentAdapterRegistry } from "../providers/registry.js";
 import { ProjectRepository } from "../repositories/projects.js";
 import { RunRepository } from "../repositories/runs.js";
+import { InvalidRunTransitionError, StaleProposalRevisionError } from "../repositories/runs.js";
 import { canonicalizeRepositoryPath } from "../security/repository-path.js";
 
 const instructionSchema = z.string().trim().min(1);
@@ -67,10 +68,10 @@ export class PlanningService {
     const modification = instructionSchema.parse(modificationInput);
     const run = this.runs.require(runId);
     if (run.status !== "awaiting_approval" || run.proposal === null) {
-      throw new Error(`Run '${runId}' is not awaiting proposal approval.`);
+      throw new InvalidRunTransitionError(`Run '${runId}' is not awaiting proposal approval.`);
     }
     if (currentRevision !== run.proposal_revision) {
-      throw new Error(
+      throw new StaleProposalRevisionError(
         `Proposal revision ${currentRevision} is stale; current revision is ${run.proposal_revision}.`,
       );
     }

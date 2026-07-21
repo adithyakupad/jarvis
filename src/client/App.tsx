@@ -44,15 +44,19 @@ function SetupView({ onCreated }: { onCreated: (project: Project) => void }): Re
   const service = useJarvisService();
   const { providers } = useJarvisSnapshot();
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    setBusy(true);
-    const project = await service.createProject({
-      name: String(data.get("name")), objective: String(data.get("objective")), repositoryPath: String(data.get("path")), provider: "codex",
-    });
-    onCreated(project);
+    setBusy(true); setError("");
+    try {
+      const project = await service.createProject({
+        name: String(data.get("name")), objective: String(data.get("objective")), repositoryPath: String(data.get("path")), provider: "codex",
+      });
+      onCreated(project);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Project creation failed."); }
+    finally { setBusy(false); }
   }
 
   return (
@@ -61,7 +65,7 @@ function SetupView({ onCreated }: { onCreated: (project: Project) => void }): Re
       <ol className="readiness-steps" aria-label="Setup progress"><li className="done"><b>01</b><span>Runtime<small>Node 22.12+ ready</small></span></li><li className="done"><b>02</b><span>Providers<small>Local adapters detected</small></span></li><li><b>03</b><span>Project<small>Create a workspace</small></span></li></ol>
       <div className="setup-grid">
         <section className="surface"><div className="section-kicker">Provider matrix</div>{providers.map((provider) => <article className="provider-row" key={provider.provider}><div><h2>{provider.provider === "codex" ? "Codex" : "Claude Code"}</h2><p>{provider.detail}</p></div><span className={provider.authenticated ? "ready" : "neutral"}>{provider.installed ? "Detected" : "Unavailable"}</span></article>)}</section>
-        <form className="surface project-form" onSubmit={(event) => void submit(event)}><div className="section-kicker">New project</div><label>Project name<input name="name" defaultValue="MK 43" required /></label><label>Objective<textarea name="objective" defaultValue="Prepare and validate the next system iteration" required /></label><label>Repository path<input name="path" defaultValue="/Users/example/Projects/MK-43" required /></label><button className="button primary" disabled={busy}>{busy ? "Creating…" : "Create project"}</button></form>
+        <form className="surface project-form" onSubmit={(event) => void submit(event)}><div className="section-kicker">New project</div><label>Project name<input name="name" defaultValue="MK 43" required /></label><label>Objective<textarea name="objective" defaultValue="Prepare and validate the next system iteration" required /></label><label>Repository path<input name="path" defaultValue="/Users/example/Projects/MK-43" required /></label>{error && <p className="inline-error" role="alert">{error}</p>}<button className="button primary" disabled={busy}>{busy ? "Creating…" : "Create project"}</button></form>
       </div>
     </section>
   );
@@ -98,7 +102,7 @@ function ProposalReview({ presentation, onModify, onCancel, onProceed, error }: 
 }
 
 function ActivityObject({ run, onDetails, onCancel }: { run: RunPresentation; onDetails: () => void; onCancel: () => void }): ReactNode {
-  return <article className={`active-object activity activity-${run.state}`}><header className="object-header"><div><p className="eyebrow">Run / {run.run.id}</p><h2>{run.state === "completed" ? "Verification supports completion." : run.state === "cancelled" ? "Run exited safely." : run.state === "failed" ? "Planning could not continue." : "System activity in progress."}</h2></div><StatusPill state={run.state} /></header><div className="activity-core"><div className="activity-orbit" aria-hidden="true"><i /><i /><span /></div><div><p className="state-message">{run.statusMessage}</p><p className="quiet">{run.isGate3Simulation ? "Gate 3 execution and verification are simulated behind the client service boundary." : "Planning behavior follows the Gate 2 domain lifecycle."}</p></div></div>{run.checks.length > 0 && <section className="checks"><h3>Verification evidence</h3>{run.checks.map((check) => <div className={`check check-${check.status}`} key={check.id}><span aria-hidden="true">{check.status === "passed" ? "✓" : "·"}</span><div><strong>{check.label}</strong><small>{check.evidence}</small></div><b>{check.status}</b></div>)}</section>}<footer className="activity-actions"><button className="button secondary" onClick={onDetails}>Open run details</button>{run.state === "working" && <button className="button ghost danger" onClick={onCancel}>Cancel execution</button>}</footer></article>;
+  return <article className={`active-object activity activity-${run.state}`}><header className="object-header"><div><p className="eyebrow">Run / {run.run.id}</p><h2>{run.state === "approved" ? "Plan approved." : run.state === "cancelled" ? "Run exited safely." : run.state === "failed" ? "Planning could not continue." : "System activity in progress."}</h2></div><StatusPill state={run.state} /></header><div className="activity-core"><div className="activity-orbit" aria-hidden="true"><i /><i /><span /></div><div><p className="state-message">{run.statusMessage}</p><p className="quiet">Planning behavior follows the persisted Gate 2 lifecycle. No execution occurs in this gate.</p></div></div><footer className="activity-actions"><button className="button secondary" onClick={onDetails}>Open run details</button>{run.state === "working" && <button className="button ghost danger" onClick={onCancel}>Cancel execution</button>}</footer></article>;
 }
 
 function WorkspaceView({ project, onRunDetails }: { project: Project; onRunDetails: () => void }): ReactNode {
@@ -114,12 +118,12 @@ function WorkspaceView({ project, onRunDetails }: { project: Project; onRunDetai
   const invoke = async (operation: () => Promise<unknown>): Promise<void> => { try { setError(""); await operation(); } catch (cause) { setError(cause instanceof Error ? cause.message : "The action could not be completed."); } };
 
   function center(): ReactNode {
-    if (!activeRun) return <article className="active-object instruction-object"><p className="eyebrow">Instruction / read-only entry</p><h2>What should JARVIS examine?</h2><p>Inspection gathers project-aware context and returns a structured proposal. No files change before explicit approval.</p><label htmlFor="instruction">High-level instruction</label><textarea id="instruction" value={instruction} onChange={(event) => setInstruction(event.target.value)} rows={5} /><div className="instruction-footer"><span><i aria-hidden="true" /> Read-only inspection</span><button className="button primary" onClick={() => void invoke(() => service.inspect(project.id, instruction))}>Inspect and propose</button></div><button className="text-button" onClick={() => void invoke(() => service.demonstrateMalformedProposal(project.id))}>Demonstrate malformed proposal handling</button></article>;
+    if (!activeRun) return <article className="active-object instruction-object"><p className="eyebrow">Instruction / read-only entry</p><h2>What should JARVIS examine?</h2><p>Inspection gathers project-aware context and returns a structured proposal. No files change before explicit approval.</p><label htmlFor="instruction">High-level instruction</label><textarea id="instruction" value={instruction} onChange={(event) => setInstruction(event.target.value)} rows={5} />{error && <p className="inline-error" role="alert">{error}</p>}<div className="instruction-footer"><span><i aria-hidden="true" /> Read-only inspection</span><button className="button primary" onClick={() => void invoke(() => service.inspect(project.id, instruction))}>Inspect and propose</button></div></article>;
     if (activeRun.state === "awaiting approval") return modifying ? <article className="active-object modify-object"><p className="eyebrow">Modify / Same run · Revision {activeRun.run.proposal_revision}</p><h2>Refine the proposal boundary.</h2><p>The current proposal remains preserved. Submitting creates revision {activeRun.run.proposal_revision + 1} in this run and keeps the provider session.</p><label htmlFor="modification">Requested change</label><textarea id="modification" value={modification} onChange={(event) => setModification(event.target.value)} rows={4} autoFocus /><div className="button-group"><button className="button ghost" onClick={() => setModifying(false)}>Back</button><button className="button primary" onClick={() => void invoke(async () => { await service.modify(activeRun.run.id, activeRun.run.proposal_revision, modification); setModifying(false); })}>Create revision {activeRun.run.proposal_revision + 1}</button></div></article> : <ProposalReview presentation={activeRun} error={error} onModify={() => setModifying(true)} onCancel={() => void invoke(() => service.cancel(activeRun.run.id))} onProceed={(revision) => void invoke(() => service.proceed(activeRun.run.id, revision))} />;
     return <ActivityObject run={activeRun} onDetails={onRunDetails} onCancel={() => void invoke(() => service.cancelExecution(activeRun.run.id))} />;
   }
 
-  return <section className="view workspace-view" aria-labelledby="workspace-title"><header className="workspace-header"><div><p className="eyebrow">Project workspace</p><h1 id="workspace-title" ref={headingRef} tabIndex={-1}>{project.name}</h1></div><div className="workspace-state"><span>Current state</span><strong>{activeRun ? stateLabel(activeRun.state) : "IDLE"}</strong></div></header><p className="sr-only" role="status" aria-live="polite">{activeRun?.statusMessage || "Project is idle and ready for an instruction."}</p><div className="workspace-grid"><ProjectContext project={project} /><div className="center-stage">{center()}</div><aside className="evidence-rail" aria-label="Current context"><p className="rail-label">Context / now</p>{activeRun ? <><dl><div><dt>Run</dt><dd className="mono">{activeRun.run.id}</dd></div><div><dt>Proposal</dt><dd>Revision {activeRun.run.proposal_revision || "—"}</dd></div><div><dt>Approved</dt><dd>{activeRun.run.approved_proposal_revision ? `Revision ${activeRun.run.approved_proposal_revision}` : "Not yet"}</dd></div><div><dt>Session</dt><dd className="mono">{activeRun.run.provider_session_id || "Pending"}</dd></div></dl>{activeRun.revisions.length > 1 && <div className="revision-stack"><span>Revision history</span>{activeRun.revisions.map((item) => <b key={item.revision}>REV {item.revision}{item.revision === activeRun.run.proposal_revision ? " / CURRENT" : " / SUPERSEDED"}</b>)}</div>}</> : <p className="quiet">Project context will remain peripheral until inspection produces a decision.</p>}</aside></div>{activeRun && ["cancelled", "failed", "completed"].includes(activeRun.state) && <button className="reset-demo" onClick={() => void service.resetDemo(project.id)}>Reset demonstration</button>}</section>;
+  return <section className="view workspace-view" aria-labelledby="workspace-title"><header className="workspace-header"><div><p className="eyebrow">Project workspace</p><h1 id="workspace-title" ref={headingRef} tabIndex={-1}>{project.name}</h1></div><div className="workspace-state"><span>Current state</span><strong>{activeRun ? stateLabel(activeRun.state) : "IDLE"}</strong></div></header><p className="sr-only" role="status" aria-live="polite">{activeRun?.statusMessage || "Project is idle and ready for an instruction."}</p><div className="workspace-grid"><ProjectContext project={project} /><div className="center-stage">{center()}</div><aside className="evidence-rail" aria-label="Current context"><p className="rail-label">Context / now</p>{activeRun ? <><dl><div><dt>Run</dt><dd className="mono">{activeRun.run.id}</dd></div><div><dt>Proposal</dt><dd>Revision {activeRun.run.proposal_revision || "—"}</dd></div><div><dt>Approved</dt><dd>{activeRun.run.approved_proposal_revision ? `Revision ${activeRun.run.approved_proposal_revision}` : "Not yet"}</dd></div><div><dt>Session</dt><dd className="mono">{activeRun.run.provider_session_id || "Pending"}</dd></div></dl>{activeRun.revisions.length > 1 && <div className="revision-stack"><span>Revision history</span>{activeRun.revisions.map((item) => <b key={item.revision}>REV {item.revision}{item.revision === activeRun.run.proposal_revision ? " / CURRENT" : " / SUPERSEDED"}</b>)}</div>}</> : <p className="quiet">Project context will remain peripheral until inspection produces a decision.</p>}</aside></div></section>;
 }
 
 function RunDetailsView({ project, onBack }: { project: Project; onBack: () => void }): ReactNode {
@@ -130,10 +134,11 @@ function RunDetailsView({ project, onBack }: { project: Project; onBack: () => v
 }
 
 export default function App(): ReactNode {
-  const { projects, activeRun } = useJarvisSnapshot();
+  const service = useJarvisService();
+  const { projects, activeRun, error } = useJarvisSnapshot();
   const [view, setView] = useState<View>("projects");
   const [projectId, setProjectId] = useState("mk-42");
   const project = projects.find((item) => item.id === projectId) || projects[0];
-  const select = (selected: Project): void => { setProjectId(selected.id); setView("workspace"); };
-  return <AppShell view={view} setView={setView} status={activeRun?.state || "idle"}>{view === "setup" && <SetupView onCreated={select} />}{view === "projects" && <ProjectsView onSelect={select} onSetup={() => setView("setup")} />}{view === "workspace" && project && <WorkspaceView project={project} onRunDetails={() => setView("run")} />}{view === "run" && project && <RunDetailsView project={project} onBack={() => setView("workspace")} />}</AppShell>;
+  const select = (selected: Project): void => { setProjectId(selected.id); setView("workspace"); void service.selectProject(selected.id); };
+  return <AppShell view={view} setView={setView} status={activeRun?.state || "idle"}>{error && <p className="inline-error global-error" role="alert">{error}</p>}{view === "setup" && <SetupView onCreated={select} />}{view === "projects" && <ProjectsView onSelect={select} onSetup={() => setView("setup")} />}{view === "workspace" && project && <WorkspaceView project={project} onRunDetails={() => setView("run")} />}{view === "run" && project && <RunDetailsView project={project} onBack={() => setView("workspace")} />}</AppShell>;
 }

@@ -81,7 +81,7 @@ function event(id: string, kind: SimulatedGate3Event["kind"], title: string, det
 }
 
 export class DeterministicMockJarvisClientService implements JarvisClientService {
-  private snapshot: JarvisSnapshot = { projects: [mk42()], providers: providerAvailability, activeRun: null };
+  private snapshot: JarvisSnapshot = { projects: [mk42()], providers: providerAvailability, activeRun: null, error: null };
   private readonly listeners = new Set<(snapshot: JarvisSnapshot) => void>();
   private sequence = 1;
   private executionGeneration = 0;
@@ -105,6 +105,10 @@ export class DeterministicMockJarvisClientService implements JarvisClientService
     });
     this.patch({ projects: [...this.snapshot.projects, project] });
     return project;
+  }
+
+  async selectProject(): Promise<void> {
+    this.patch({ activeRun: null });
   }
 
   async inspect(projectId: string, instruction: string): Promise<RunPresentation> {

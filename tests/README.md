@@ -22,3 +22,11 @@ Gate 2 proves:
 - Proceed seals approval to the exact current revision;
 - Cancel prevents approval and execution; and
 - runs, proposal history, and provider sessions survive restart.
+
+Gate 2.5 additionally proves:
+
+- provider and SQLite project data cross the loopback API boundary;
+- API bodies and parameters reject invalid input explicitly;
+- HTTP Modify, Proceed, and Cancel preserve Gate 2 lifecycle guarantees;
+- the real HTTP client restores persisted state and never falls back to mock data; and
+- Proceed remains approval-only and emits no fabricated execution evidence.

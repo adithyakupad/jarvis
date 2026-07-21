@@ -32,6 +32,15 @@
 - [ ] Project reconciliation and append-only log
 - [ ] Run tests and commit the gate
 
+## Gate 2.5 — Real planning interface integration
+
+- [x] Loopback Fastify API over Gate 2 services
+- [x] Read-only authenticated Codex SDK planning and session resumption
+- [x] SQLite-backed React client with reload restoration
+- [x] Real Modify, Proceed, and Cancel lifecycle
+- [x] Explicit Gate 3 execution boundary
+- [x] Deterministic API and HTTP-client coverage
+
 ## Gate 4 — Claude Code
 
 - [ ] Constrained `stream-json` subprocess
