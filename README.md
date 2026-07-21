@@ -18,13 +18,18 @@ Create a project
 
 JARVIS v0.1 is being built in sequential, tested gates.
 
-Gate 1 provides:
+Gates 1 and 2 provide:
 
 - A TypeScript runtime.
 - SQLite project persistence and migrations.
 - Project creation and retrieval.
 - Codex and Claude Code installation detection.
-- A shared provider contract for later execution gates.
+- A shared provider contract.
+- Read-only inspection runs and Zod-validated structured proposals.
+- Persisted proposal revisions and provider session IDs.
+- Proceed, Modify, and Cancel transitions sealed to exact revisions.
+
+Gate 2 uses deterministic fake adapters for verification. It does not execute live project changes; live Codex execution begins in Gate 3.
 
 The earlier Python implementation remains available until the TypeScript version reaches verified parity.
 
@@ -96,11 +101,9 @@ npm run typecheck
 
 Later approved gates add:
 
-1. Inspection and structured plans.
-2. Proceed, Modify, and Cancel controls.
-3. Live Codex execution, events, cancellation, and verification.
-4. Claude Code execution and session resumption.
-5. A small four-view interface.
+1. Live Codex execution, events, cancellation, and verification.
+2. Claude Code execution and session resumption.
+3. A small four-view interface.
 
 Ollama, Whisper, voice, calendar, email, mobile apps, embeddings, and domain modules are not part of v0.1.
 

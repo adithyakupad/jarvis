@@ -14,13 +14,13 @@
 
 ## Gate 2 — Planning and approval
 
-- [ ] Read-only inspection
-- [ ] Structured proposal
-- [ ] Proceed
-- [ ] Modify and proposal revision
-- [ ] Cancel
-- [ ] Deterministic fake-adapter tests
-- [ ] Run tests and commit the gate
+- [x] Read-only inspection
+- [x] Structured proposal
+- [x] Proceed
+- [x] Modify and proposal revision
+- [x] Cancel
+- [x] Deterministic fake-adapter tests
+- [x] Run tests and commit the gate
 
 ## Gate 3 — Live Codex execution
 

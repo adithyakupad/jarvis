@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { ProviderId } from "./projects.js";
+import type { PlanProposal } from "./runs.js";
 
 export const ProviderAvailabilitySchema = z.object({
   provider: z.enum(["codex", "claude-code"]),
@@ -16,19 +17,17 @@ export interface InspectionRequest {
   projectId: string;
   repositoryPath: string;
   instruction: string;
-}
-
-export interface PlanProposal {
-  objective: string;
-  currentState: string;
-  steps: string[];
-  expectedScope: string[];
-  risks: string[];
-  completionTest: string;
+  readOnly: true;
+  proposalRevision: number;
   providerSessionId: string | null;
+  previousProposal: PlanProposal | null;
+  modification: string | null;
 }
 
-export interface ExecutionRequest extends InspectionRequest {
+export interface ExecutionRequest {
+  projectId: string;
+  repositoryPath: string;
+  instruction: string;
   proposal: PlanProposal;
   providerSessionId: string | null;
 }
@@ -50,7 +49,7 @@ export type AgentEventHandler = (event: AgentEvent) => void;
 export interface AgentAdapter {
   readonly id: ProviderId;
   detect(): Promise<ProviderAvailability>;
-  inspect(input: InspectionRequest): Promise<PlanProposal>;
+  inspect(input: InspectionRequest): Promise<unknown>;
   execute(
     input: ExecutionRequest,
     onEvent: AgentEventHandler,
