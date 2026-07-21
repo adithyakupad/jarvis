@@ -1,6 +1,7 @@
 import { PlanProposalSchema, RunSchema, type PlanProposal, type Run } from "../shared/runs.js";
 import { ProjectSchema, type Project } from "../shared/projects.js";
 import type { ProviderAvailability } from "../shared/providers.js";
+import { ContextPacketSchema, type ContextPacket } from "../shared/context.js";
 import {
   InvalidLifecycleActionError,
   StaleProposalError,
@@ -134,6 +135,15 @@ export class DeterministicMockJarvisClientService implements JarvisClientService
     const nextProposal = proposal(currentRevision + 1);
     const nextRun = RunSchema.parse({ ...current.run, proposal: nextProposal, proposal_revision: nextProposal.revision, status: "awaiting_approval" });
     return this.setRun(this.present(nextRun, [...current.revisions, nextProposal], "awaiting approval", `Proposal revision ${nextProposal.revision} is now the only approvable revision.`));
+  }
+
+  async addContext(runId: string, currentRevision: number, packetInput: ContextPacket): Promise<RunPresentation> {
+    const current = this.requireRun(runId);
+    this.requireApprovable(current, currentRevision);
+    const contextPacket = ContextPacketSchema.parse(packetInput);
+    const nextProposal = proposal(currentRevision + 1);
+    const nextRun = RunSchema.parse({ ...current.run, context_packet: contextPacket, proposal: nextProposal, proposal_revision: nextProposal.revision, status: "awaiting_approval" });
+    return this.setRun(this.present(nextRun, [...current.revisions, nextProposal], "awaiting approval", `Context saved. Proposal revision ${nextProposal.revision} is ready.`));
   }
 
   async proceed(runId: string, revision: number): Promise<RunPresentation> {

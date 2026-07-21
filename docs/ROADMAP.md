@@ -41,6 +41,15 @@
 - [x] Explicit Gate 3 execution boundary
 - [x] Deterministic API and HTTP-client coverage
 
+## Gate 2.6 — Reliable hydration and planning context
+
+- [x] Explicit idempotent client hydration
+- [x] Atomic selected-project and active-run restoration
+- [x] Persistent Context Packet migration and API
+- [x] Same-run, same-session context-aware replanning
+- [x] User-supplied context UI and refresh restoration
+- [x] Provenance boundaries for claims, repository findings, and unresolved questions
+
 ## Gate 4 — Claude Code
 
 - [ ] Constrained `stream-json` subprocess

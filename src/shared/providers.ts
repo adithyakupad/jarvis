@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { ProviderId } from "./projects.js";
 import type { PlanProposal } from "./runs.js";
+import type { ContextPacket } from "./context.js";
 
 export const ProviderAvailabilitySchema = z.object({
   provider: z.enum(["codex", "claude-code"]),
@@ -22,6 +23,7 @@ export interface InspectionRequest {
   providerSessionId: string | null;
   previousProposal: PlanProposal | null;
   modification: string | null;
+  contextPacket: ContextPacket | null;
 }
 
 export interface ExecutionRequest {

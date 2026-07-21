@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { ProviderIdSchema } from "./projects.js";
+import { ContextPacketSchema } from "./context.js";
 
 const nonEmptyText = z.string().trim().min(1);
 
@@ -37,6 +38,7 @@ export const RunSchema = z.object({
   approval_decision: ApprovalDecisionSchema.nullable(),
   status: RunStatusSchema,
   failure: z.unknown().nullable(),
+  context_packet: ContextPacketSchema.nullable().default(null),
   created_at: z.string().datetime({ offset: true }),
   completed_at: z.string().datetime({ offset: true }).nullable(),
 });

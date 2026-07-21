@@ -88,4 +88,26 @@ describe("Gate 2.5 HTTP API", () => {
     expect((await context.app.inject({ method: "GET", url: `/api/projects/mk-42` })).json().activeRun.run.id).toBe(runId);
     expect((await context.app.inject({ method: "GET", url: `/api/runs/${runId}` })).json().run.proposal.objective).toBe("Understand validation");
   });
+
+  it("validates context, replans, and returns the persisted packet", async () => {
+    const context = fixture(); await createProject(context);
+    const created = await context.app.inject({ method: "POST", url: "/api/projects/mk-42/instructions", payload: { instruction: "Resolve icing." } });
+    const runId = created.json().run.id as string;
+    expect((await context.app.inject({ method: "POST", url: `/api/runs/${runId}/context`, payload: { currentRevision: 1 } })).statusCode).toBe(400);
+    expect((await context.app.inject({ method: "POST", url: `/api/runs/${runId}/context`, payload: { currentRevision: 1, reproductionSteps: ["   "] } })).statusCode).toBe(400);
+    const replanned = await context.app.inject({ method: "POST", url: `/api/runs/${runId}/context`, payload: { currentRevision: 1, problem: "  Shoulder icing. ", evidence: " Temperature trace drops. " } });
+    expect(replanned.statusCode).toBe(200);
+    expect(replanned.json()).toMatchObject({ run: { id: runId, provider_session_id: "thread-real", proposal_revision: 2, context_packet: { problem: "Shoulder icing.", evidence: "Temperature trace drops." } }, contextPacket: { problem: "Shoulder icing." }, currentProposal: { revision: 2 }, revisions: [{ revision: 1 }, { revision: 2 }] });
+    expect(context.adapter.requests[1]).toMatchObject({ instruction: "Resolve icing.", contextPacket: { problem: "Shoulder icing.", evidence: "Temperature trace drops." } });
+  });
+
+  it("rejects unknown, cancelled, and stale context operations", async () => {
+    const context = fixture(); await createProject(context);
+    expect((await context.app.inject({ method: "POST", url: "/api/runs/missing/context", payload: { currentRevision: 1, problem: "Icing" } })).statusCode).toBe(404);
+    const created = await context.app.inject({ method: "POST", url: "/api/projects/mk-42/instructions", payload: { instruction: "Resolve icing." } });
+    const runId = created.json().run.id as string;
+    expect((await context.app.inject({ method: "POST", url: `/api/runs/${runId}/context`, payload: { currentRevision: 2, problem: "Icing" } })).statusCode).toBe(409);
+    await context.app.inject({ method: "POST", url: `/api/runs/${runId}/cancel`, payload: {} });
+    expect((await context.app.inject({ method: "POST", url: `/api/runs/${runId}/context`, payload: { currentRevision: 1, problem: "Icing" } })).statusCode).toBe(409);
+  });
 });

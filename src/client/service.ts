@@ -1,6 +1,7 @@
 import type { Project, ProviderId } from "../shared/projects.js";
 import type { ProviderAvailability } from "../shared/providers.js";
 import type { PlanProposal, Run } from "../shared/runs.js";
+import type { ContextPacket } from "../shared/context.js";
 
 export type UiWorkflowState =
   | "idle"
@@ -72,6 +73,7 @@ export interface JarvisClientService {
   selectProject(projectId: string): Promise<void>;
   inspect(projectId: string, instruction: string): Promise<RunPresentation>;
   modify(runId: string, currentRevision: number, modification: string): Promise<RunPresentation>;
+  addContext(runId: string, currentRevision: number, packet: ContextPacket): Promise<RunPresentation>;
   proceed(runId: string, revision: number): Promise<RunPresentation>;
   cancel(runId: string): Promise<RunPresentation>;
   cancelExecution(runId: string): Promise<RunPresentation>;

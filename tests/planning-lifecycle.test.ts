@@ -270,4 +270,36 @@ describe("Gate 2 planning lifecycle", () => {
       proposal(2),
     ]);
   });
+
+  it("persists normalized context and replans in the same run and session", async () => {
+    const context = fixture([proposal(1), proposal(2)]);
+    await context.planning.inspect("mk-42", "Resolve the reported icing problem.");
+
+    const revised = await context.planning.addContext("run-mk42", 1, {
+      problem: "  Ice forms around the left actuator.  ",
+      reproductionSteps: [" Run the thermal simulation. ", "Inspect the trace."],
+      constraints: [" Keep flight controls unchanged. "],
+    });
+
+    expect(revised).toMatchObject({ id: "run-mk42", proposal_revision: 2, provider_session_id: "session-mk42", context_packet: { problem: "Ice forms around the left actuator.", reproductionSteps: ["Run the thermal simulation.", "Inspect the trace."], constraints: ["Keep flight controls unchanged."] } });
+    expect(context.adapter.inspectionRequests[1]).toMatchObject({ instruction: "Resolve the reported icing problem.", proposalRevision: 2, providerSessionId: "session-mk42", contextPacket: revised.context_packet, readOnly: true });
+    expect(context.runs.proposalRevisions("run-mk42")).toEqual([proposal(1), proposal(2)]);
+    expect(context.adapter.executeCalls).toBe(0);
+  });
+
+  it("keeps submitted context when provider replanning fails", async () => {
+    const context = fixture([proposal(1), { objective: "malformed" }]);
+    await context.planning.inspect("mk-42", "Resolve icing.");
+    await expect(context.planning.addContext("run-mk42", 1, { evidence: "Temperature drops below threshold." })).rejects.toBeInstanceOf(PlanningInspectionError);
+    expect(context.runs.require("run-mk42")).toMatchObject({ status: "failed", context_packet: { evidence: "Temperature drops below threshold." }, proposal_revision: 1 });
+  });
+
+  it("restores context after a database restart", async () => {
+    const context = fixture([proposal(1)]);
+    await context.planning.inspect("mk-42", "Resolve icing.");
+    context.runs.recordContext("run-mk42", 1, { expectedBehavior: "The actuator remains above minimum temperature." });
+    context.database.close();
+    const restartedDatabase = openDatabase(context.databasePath); databases.push(restartedDatabase);
+    expect(new RunRepository(restartedDatabase).require("run-mk42").context_packet).toEqual({ expectedBehavior: "The actuator remains above minimum temperature." });
+  });
 });

@@ -10,6 +10,8 @@ import { ProjectAlreadyExistsError, ProjectRepository } from "../repositories/pr
 import { InvalidRunTransitionError, RunNotFoundError, RunRepository, StaleProposalRevisionError } from "../repositories/runs.js";
 import { PlanningInspectionError, PlanningService, ProjectNotFoundError } from "../services/planning.js";
 import { ProviderIdSchema } from "../../shared/projects.js";
+import { ContextPacketFieldsSchema, ContextPacketSchema } from "../../shared/context.js";
+import type { PlanProposal, Run } from "../../shared/runs.js";
 
 const idParams = z.object({ projectId: z.string().trim().min(1) });
 const runParams = z.object({ runId: z.string().trim().min(1) });
@@ -20,6 +22,7 @@ const createProjectBody = z.object({
 const instructionBody = z.object({ instruction: z.string().trim().min(1) });
 const modifyBody = z.object({ currentRevision: z.number().int().positive(), modification: z.string().trim().min(1) });
 const proceedBody = z.object({ revision: z.number().int().positive() });
+const contextBody = ContextPacketFieldsSchema.extend({ currentRevision: z.number().int().positive() });
 
 export interface ApiDependencies {
   database: JarvisDatabase;
@@ -27,7 +30,7 @@ export interface ApiDependencies {
   processRunner?: ProcessRunner;
 }
 
-function runResponse(runs: RunRepository, runId: string): object {
+function runResponse(runs: RunRepository, runId: string): { run: Run; revisions: PlanProposal[] } {
   return { run: runs.require(runId), revisions: runs.proposalRevisions(runId) };
 }
 
@@ -86,6 +89,13 @@ export function buildApi({ database, adapters, processRunner = new NodeProcessRu
     const { runId } = runParams.parse(request.params);
     planning.cancel(runId);
     return runResponse(runs, runId);
+  });
+  app.post("/api/runs/:runId/context", async (request) => {
+    const { runId } = runParams.parse(request.params);
+    const { currentRevision, ...packet } = contextBody.parse(request.body);
+    await planning.addContext(runId, currentRevision, ContextPacketSchema.parse(packet));
+    const response = runResponse(runs, runId);
+    return { ...response, contextPacket: response.run.context_packet, currentProposal: response.run.proposal };
   });
 
   app.setErrorHandler((error, _request, reply) => {

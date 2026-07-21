@@ -30,3 +30,5 @@ Gate 2.5 additionally proves:
 - HTTP Modify, Proceed, and Cancel preserve Gate 2 lifecycle guarantees;
 - the real HTTP client restores persisted state and never falls back to mock data; and
 - Proceed remains approval-only and emits no fabricated execution evidence.
+
+Gate 2.6 proves that hydration is single-attempt and explicit, selected runs are restored before the workspace is ready, and initialization failures remain visible. It also validates Context Packet normalization, persistence across restart, provider-failure retention, same-session replanning, proposal history, API conflicts, prompt provenance boundaries, and browser-client restoration.

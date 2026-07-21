@@ -100,6 +100,9 @@ export function migrate(database: JarvisDatabase): void {
     if (!runColumns.has("approved_proposal_revision")) {
       database.exec("ALTER TABLE runs ADD COLUMN approved_proposal_revision INTEGER");
     }
+    if (!runColumns.has("context_json")) {
+      database.exec("ALTER TABLE runs ADD COLUMN context_json TEXT");
+    }
 
     database
       .prepare(
@@ -111,5 +114,10 @@ export function migrate(database: JarvisDatabase): void {
         "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
       )
       .run(2, new Date().toISOString());
+    database
+      .prepare(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+      )
+      .run(3, new Date().toISOString());
   })();
 }

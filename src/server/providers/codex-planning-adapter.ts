@@ -30,7 +30,7 @@ const proposalJsonSchema = {
 
 export class ProviderUnavailableError extends Error {}
 
-function promptFor(input: InspectionRequest): string {
+export function buildPlanningPrompt(input: InspectionRequest): string {
   const boundary = [
     "Inspect this repository and return only the requested structured planning proposal.",
     "This is read-only planning: do not modify files, execute the proposed work, or request elevated permissions.",
@@ -40,6 +40,12 @@ function promptFor(input: InspectionRequest): string {
     boundary.push(
       `Revise the existing proposal in response to: ${input.modification}`,
       `Existing proposal: ${JSON.stringify(input.previousProposal)}`,
+    );
+  }
+  if (input.contextPacket) {
+    boundary.push(
+      "Replan using the context below while keeping three categories explicit in currentState, steps, scope, and risks: (1) USER-SUPPLIED CONTEXT—claims and symptoms from the packet; (2) REPOSITORY-CONFIRMED FINDINGS—facts you verify in the repository; (3) UNRESOLVED ASSUMPTIONS OR QUESTIONS—anything supported by neither source. Never present user claims as repository-confirmed facts or invent files for external or fictional subsystems.",
+      `--- BEGIN USER-SUPPLIED CONTEXT PACKET ---\n${JSON.stringify(input.contextPacket, null, 2)}\n--- END USER-SUPPLIED CONTEXT PACKET ---`,
     );
   }
   return boundary.join("\n\n");
@@ -71,7 +77,7 @@ export class CodexPlanningAdapter implements AgentAdapter {
     const thread = input.providerSessionId
       ? this.codex.resumeThread(input.providerSessionId, options)
       : this.codex.startThread(options);
-    const turn = await thread.run(promptFor(input), { outputSchema: proposalJsonSchema });
+    const turn = await thread.run(buildPlanningPrompt(input), { outputSchema: proposalJsonSchema });
     if (!thread.id) throw new Error("Codex did not return a provider session ID.");
     const body = proposalBodySchema.parse(JSON.parse(turn.finalResponse));
     return PlanProposalSchema.parse({

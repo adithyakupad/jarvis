@@ -8,6 +8,16 @@ The Vite client calls `/api`; its development proxy forwards requests to the Fas
 
 The browser remembers the selected project ID. Reloading retrieves that project and its latest persisted run and proposal history from SQLite.
 
+As of Gate 2.6, hydration is an explicit tracked lifecycle. The HTTP client constructor performs no asynchronous work. React calls one idempotent initializer, repeated development-lifecycle calls share its promise, and the UI distinguishes not initialized, hydrating, ready, and failed states. Selected-project loading atomically applies the project ID and active run before the workspace becomes interactive.
+
+## Context Packets
+
+A Context Packet stores external facts that repository inspection cannot establish. Its optional fields are `problem`, `expectedBehavior`, `actualBehavior`, `reproductionSteps`, `evidence`, and `constraints`; at least one normalized non-empty field is required. Packets are associated with a planning run and restored through both run reads and project `activeRun` restoration.
+
+**Modify** corrects or redirects a proposal. **Add Context and Replan** supplies missing symptoms, evidence, reproduction details, or constraints. Context is persisted before provider replanning, so a provider failure does not erase it. Replanning remains read-only, preserves the run and provider session, and creates the next proposal revision while retaining earlier revisions.
+
+Provider prompts delimit user-supplied context and require the proposal to distinguish it from repository-confirmed findings and unresolved assumptions. A user claim is not treated as a repository fact merely because it appears in a Context Packet.
+
 ## Boundary
 
 Proceed seals approval to the exact current proposal revision. No provider execution method is called, no commands or tests are run, and no execution or verification events are generated. Execution, SSE, provider cancellation, verification, and reconciliation remain Gate 3 work.

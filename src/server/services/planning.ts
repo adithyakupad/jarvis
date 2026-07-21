@@ -6,6 +6,7 @@ import { ProjectRepository } from "../repositories/projects.js";
 import { RunRepository } from "../repositories/runs.js";
 import { InvalidRunTransitionError, StaleProposalRevisionError } from "../repositories/runs.js";
 import { canonicalizeRepositoryPath } from "../security/repository-path.js";
+import { ContextPacketSchema, type ContextPacket } from "../../shared/context.js";
 
 const instructionSchema = z.string().trim().min(1);
 
@@ -48,6 +49,7 @@ export class PlanningService {
           providerSessionId: null,
           previousProposal: null,
           modification: null,
+          contextPacket: null,
         }),
       );
       if (proposal.revision !== 1) {
@@ -92,6 +94,7 @@ export class PlanningService {
           providerSessionId: run.provider_session_id,
           previousProposal: run.proposal,
           modification,
+          contextPacket: run.context_packet,
         }),
       );
       if (proposal.revision !== expectedRevision) {
@@ -102,6 +105,39 @@ export class PlanningService {
       if (proposal.providerSessionId !== run.provider_session_id) {
         throw new Error("Modified proposal changed the provider session ID.");
       }
+      return this.runs.recordProposal(run.id, proposal);
+    } catch (error) {
+      this.runs.failInspection(run.id, error);
+      throw new PlanningInspectionError(run.id, error);
+    }
+  }
+
+  async addContext(runId: string, currentRevision: number, packetInput: ContextPacket): Promise<Run> {
+    const packet = ContextPacketSchema.parse(packetInput);
+    const priorRun = this.runs.require(runId);
+    if (priorRun.status !== "awaiting_approval" || priorRun.proposal === null) {
+      throw new InvalidRunTransitionError(`Run '${runId}' is not awaiting proposal approval.`);
+    }
+    const project = this.projects.get(priorRun.project_id);
+    if (project === null) throw new ProjectNotFoundError(`Project '${priorRun.project_id}' was not found.`);
+    const repositoryPath = canonicalizeRepositoryPath(project.repository_path);
+    const adapter = this.adapters.require(priorRun.provider);
+    const run = this.runs.recordContext(runId, currentRevision, packet);
+    const expectedRevision = run.proposal_revision + 1;
+    try {
+      const proposal = PlanProposalSchema.parse(await adapter.inspect({
+        projectId: project.id,
+        repositoryPath,
+        instruction: run.instruction,
+        readOnly: true,
+        proposalRevision: expectedRevision,
+        providerSessionId: run.provider_session_id,
+        previousProposal: run.proposal,
+        modification: null,
+        contextPacket: packet,
+      }));
+      if (proposal.revision !== expectedRevision) throw new Error(`Context replanning must create revision ${expectedRevision}, received ${proposal.revision}.`);
+      if (proposal.providerSessionId !== run.provider_session_id) throw new Error("Context replanning changed the provider session ID.");
       return this.runs.recordProposal(run.id, proposal);
     } catch (error) {
       this.runs.failInspection(run.id, error);

@@ -8,6 +8,7 @@ import {
   type Run,
 } from "../../shared/runs.js";
 import type { ProviderId } from "../../shared/projects.js";
+import { ContextPacketSchema, type ContextPacket } from "../../shared/context.js";
 
 interface RunRow {
   id: string;
@@ -23,6 +24,7 @@ interface RunRow {
   result_json: string | null;
   created_at: string;
   completed_at: string | null;
+  context_json: string | null;
 }
 
 interface ProposalEventRow {
@@ -53,6 +55,7 @@ function toRun(row: RunRow): Run {
     approval_decision: row.approval_decision,
     status: row.status,
     failure: parseJson(row.result_json),
+    context_packet: row.context_json === null ? null : ContextPacketSchema.parse(JSON.parse(row.context_json)),
     created_at: row.created_at,
     completed_at: row.completed_at,
   });
@@ -153,6 +156,24 @@ export class RunRepository {
         proposal,
         occurredAt,
       );
+      return this.require(runId);
+    })();
+  }
+
+  recordContext(runId: string, currentRevision: number, packetInput: unknown): Run {
+    const packet = ContextPacketSchema.parse(packetInput);
+    return this.database.transaction(() => {
+      const run = this.require(runId);
+      if (run.status !== "awaiting_approval") {
+        throw new InvalidRunTransitionError(`Run '${runId}' cannot accept context while ${run.status}.`);
+      }
+      if (currentRevision !== run.proposal_revision) {
+        throw new StaleProposalRevisionError(`Proposal revision ${currentRevision} is stale; current revision is ${run.proposal_revision}.`);
+      }
+      const occurredAt = this.clock().toISOString();
+      this.database.prepare("UPDATE runs SET context_json = ?, status = 'inspecting' WHERE id = ?")
+        .run(JSON.stringify(packet), runId);
+      this.appendEvent(runId, "context_attached", packet, occurredAt);
       return this.require(runId);
     })();
   }

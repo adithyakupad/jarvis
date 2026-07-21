@@ -4,9 +4,11 @@ import { ProjectSchema, type Project } from "../shared/projects.js";
 import { ProviderAvailabilitySchema } from "../shared/providers.js";
 import { PlanProposalSchema, RunSchema, type Run } from "../shared/runs.js";
 import type { CreateProjectInput, JarvisClientService, JarvisSnapshot, RunPresentation, UiWorkflowState } from "./service.js";
+import { ContextPacketSchema, type ContextPacket } from "../shared/context.js";
 
 const runEnvelopeSchema = z.object({ run: RunSchema, revisions: z.array(PlanProposalSchema) });
 const projectEnvelopeSchema = z.object({ project: ProjectSchema, activeRun: runEnvelopeSchema.nullable() });
+const contextEnvelopeSchema = runEnvelopeSchema.extend({ contextPacket: ContextPacketSchema, currentProposal: PlanProposalSchema });
 
 function stateFor(run: Run): UiWorkflowState {
   return run.status === "awaiting_approval" ? "awaiting approval" : run.status;
@@ -99,6 +101,13 @@ export class HttpJarvisClientService implements JarvisClientService {
   async modify(runId: string, currentRevision: number, modification: string): Promise<RunPresentation> {
     this.patch({ activeRun: this.snapshot.activeRun ? { ...this.snapshot.activeRun, state: "modifying", statusMessage: "Codex is revising the proposal in the same session." } : null });
     const result = await this.request(`/api/runs/${encodeURIComponent(runId)}/modify`, { method: "POST", body: JSON.stringify({ currentRevision, modification }) }, runEnvelopeSchema);
+    return this.setRun(present(result));
+  }
+
+  async addContext(runId: string, currentRevision: number, packetInput: ContextPacket): Promise<RunPresentation> {
+    const packet = ContextPacketSchema.parse(packetInput);
+    this.patch({ activeRun: this.snapshot.activeRun ? { ...this.snapshot.activeRun, state: "planning", statusMessage: "Context saved. Codex is replanning in the same session." } : null });
+    const result = await this.request(`/api/runs/${encodeURIComponent(runId)}/context`, { method: "POST", body: JSON.stringify({ currentRevision, ...packet }) }, contextEnvelopeSchema);
     return this.setRun(present(result));
   }
 

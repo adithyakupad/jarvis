@@ -18,7 +18,7 @@ Create a project
 
 JARVIS v0.1 is being built in sequential, tested gates.
 
-Gates 1, 2, and the Gate 2.5 browser integration provide:
+Gates 1, 2, 2.5, and 2.6 provide:
 
 - A TypeScript runtime.
 - SQLite project persistence and migrations.
@@ -30,6 +30,8 @@ Gates 1, 2, and the Gate 2.5 browser integration provide:
 - Proceed, Modify, and Cancel transitions sealed to exact revisions.
 - A loopback-only Fastify API and SQLite-backed React interface.
 - Authenticated Codex SDK planning in a read-only repository sandbox.
+- Explicit browser hydration that restores the selected project, run, proposal revisions, and Context Packet before the workspace becomes interactive.
+- Persistent user-supplied Context Packets and same-session context-aware replanning.
 
 The automated suite uses deterministic fake adapters. The application uses the real local API and Codex planning adapter by default. It does not execute live project changes; live Codex execution begins in Gate 3.
 
@@ -115,6 +117,10 @@ npm run dev
 Open `http://127.0.0.1:4173`. The API binds only to `127.0.0.1:3000`, uses `data/jarvis.db` by default, and the Vite server proxies `/api` requests to it. Set `JARVIS_DATABASE_PATH` before `npm run dev:api` to use another database.
 
 Real mode detects local providers, loads projects from SQLite, asks authenticated Codex to inspect the selected repository read-only, persists proposal revisions and the Codex thread ID, and restores the latest project run after a browser reload. Modify resumes that same Codex thread. Proceed only records exact-revision approval and displays “Plan approved. Execution is not available until Gate 3.” It never edits files or fabricates execution events.
+
+Client initialization is explicit and idempotent: constructors do not launch network work, React starts one tracked initialization, and the UI remains in a hydration state until the selected project and its persisted run have been applied. Refreshing a project workspace therefore cannot treat `activeRun: null` as ready state before restoration finishes.
+
+Use **Modify** to correct, narrow, or redirect the existing proposal. Use **Add Context and Replan** when relevant facts are external to the repository, such as symptoms, expected and actual behavior, reproduction steps, evidence, or constraints. JARVIS persists the normalized packet before asking the provider to replan in the same run and session. Provider failure leaves the packet stored for auditing. The planning prompt explicitly separates user-supplied claims, repository-confirmed findings, and unresolved assumptions; user claims are never promoted to repository facts automatically.
 
 Codex planning is active when Setup reports Codex as detected and authenticated, a proposal cites details from the selected repository, and Run details shows a persisted provider session ID. Provider or server failures are shown as errors; there is no automatic mock fallback.
 

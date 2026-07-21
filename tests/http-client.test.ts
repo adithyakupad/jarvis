@@ -79,4 +79,24 @@ describe("HTTP client service", () => {
     const presentation = await service.proceed("run-1", 1);
     expect(presentation).toMatchObject({ state: "approved", events: [], changedFiles: [], statusMessage: "Plan approved. Execution is not available until Gate 3." });
   });
+
+  it("maps context submission and restores its revised proposal", async () => {
+    vi.stubGlobal("window", { localStorage: { getItem: () => "mk-42", setItem: () => undefined } });
+    const contextPacket = { problem: "Shoulder icing", constraints: ["Keep flight controls unchanged"] };
+    const revisedProposal = { ...proposal, revision: 2 };
+    const revisedRun = { ...run, context_packet: contextPacket, proposal: revisedProposal, proposal_revision: 2 };
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/context")) return response({ run: revisedRun, revisions: [proposal, revisedProposal], contextPacket, currentProposal: revisedProposal });
+      if (url.endsWith("providers")) return response({ providers: [] });
+      if (url.endsWith("/api/projects")) return response({ projects: [project] });
+      return response({ project, activeRun: { run: revisedRun, revisions: [proposal, revisedProposal] } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new HttpJarvisClientService();
+    await service.initialize();
+    expect(service.getSnapshot().activeRun?.run.context_packet).toEqual(contextPacket);
+    const presentation = await service.addContext("run-1", 1, contextPacket);
+    expect(presentation).toMatchObject({ run: { id: "run-1", proposal_revision: 2, context_packet: contextPacket }, revisions: [{ revision: 1 }, { revision: 2 }] });
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/runs/run-1/context", expect.objectContaining({ method: "POST", body: JSON.stringify({ currentRevision: 1, ...contextPacket }) }));
+  });
 });
