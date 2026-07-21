@@ -105,9 +105,10 @@ describe("Gate 2.5 HTTP API", () => {
     const context = fixture(); await createProject(context);
     const created = await context.app.inject({ method: "POST", url: "/api/projects/mk-42/instructions", payload: { instruction: "Resolve icing." } });
     const runId = created.json().run.id as string;
-    const replanned = await context.app.inject({ method: "POST", url: `/api/runs/${runId}/context`, payload: { currentRevision: 1, context: "  My suit starts freezing at high altitudes when I fly.  " } });
+    const replanned = await context.app.inject({ method: "POST", url: `/api/runs/${runId}/context`, payload: { currentRevision: 1, summary: "  My suit starts turning into ice at high altitudes when I fly.  " } });
     expect(replanned.statusCode).toBe(200);
-    expect(replanned.json().contextPacket).toEqual({ context: "My suit starts freezing at high altitudes when I fly." });
+    expect(replanned.json().contextPacket).toEqual({ summary: "My suit starts turning into ice at high altitudes when I fly." });
+    expect((await context.app.inject({ method: "POST", url: `/api/runs/${runId}/context`, payload: { currentRevision: 2, summary: "   " } })).statusCode).toBe(400);
   });
 
   it("rejects unknown, cancelled, and stale context operations", async () => {

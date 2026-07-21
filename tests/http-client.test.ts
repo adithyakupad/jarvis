@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpJarvisClientService } from "../src/client/http-service.js";
+import { ContextPacketSchema, hasMeaningfulContext } from "../src/shared/context.js";
 
 const project = { id: "mk-42", name: "MK 42", objective: "Validate", status: "active", repository_path: "/tmp/repo", provider: "codex", provider_session_id: null, current_phase: "", latest_result: "", current_blocker: "", next_action: "", created_at: "2026-07-21T13:00:00.000Z", updated_at: "2026-07-21T13:00:00.000Z" };
 const proposal = { objective: "Inspect validation", currentState: "Validation exists.", steps: ["Inspect scripts"], expectedScope: ["package.json"], risks: [], completionTest: "Plan is specific.", revision: 1, providerSessionId: "thread-1" };
@@ -14,6 +15,11 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("HTTP client service", () => {
+  it("uses the shared semantic validation for summary-only packets", () => {
+    expect(ContextPacketSchema.parse({ summary: "  My suit freezes.  ", reproductionSteps: [""] })).toEqual({ summary: "My suit freezes." });
+    expect(hasMeaningfulContext({ summary: "My suit freezes." })).toBe(true);
+    expect(ContextPacketSchema.safeParse({ summary: "   ", constraints: [" "] }).success).toBe(false);
+  });
   it("performs no constructor requests and shares one initialization across repeated calls", async () => {
     const storage = new Map<string, string>();
     vi.stubGlobal("window", { localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) } });
@@ -102,7 +108,7 @@ describe("HTTP client service", () => {
 
   it("submits freeform context without manufacturing structured fields", async () => {
     vi.stubGlobal("window", { localStorage: { getItem: () => null, setItem: () => undefined } });
-    const freeform = { context: "My suit starts freezing at high altitudes when I fly." };
+    const freeform = { summary: "My suit starts turning into ice at high altitudes when I fly." };
     const revisedProposal = { ...proposal, revision: 2, contextStatus: "needs_more_context", followUpQuestion: "What material surrounds the affected actuator?" };
     const revisedRun = { ...run, context_packet: freeform, proposal: revisedProposal, proposal_revision: 2 };
     const fetchMock = vi.fn(async () => response({ run: revisedRun, revisions: [proposal, revisedProposal], contextPacket: freeform, currentProposal: revisedProposal }));
@@ -111,6 +117,6 @@ describe("HTTP client service", () => {
     const result = await service.addContext("run-1", 1, freeform);
     expect(result.run.context_packet).toEqual(freeform);
     expect(result.run.proposal).toMatchObject({ contextStatus: "needs_more_context", followUpQuestion: "What material surrounds the affected actuator?" });
-    expect(fetchMock).toHaveBeenCalledWith("/api/runs/run-1/context", expect.objectContaining({ body: JSON.stringify({ currentRevision: 1, context: freeform.context }) }));
+    expect(fetchMock).toHaveBeenCalledWith("/api/runs/run-1/context", expect.objectContaining({ body: JSON.stringify({ currentRevision: 1, summary: freeform.summary }) }));
   });
 });

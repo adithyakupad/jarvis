@@ -45,10 +45,11 @@ export function buildPlanningPrompt(input: InspectionRequest): string {
     );
   }
   if (input.contextPacket) {
-    const { context, ...structuredContext } = input.contextPacket;
+    const { summary, context: legacyContext, ...structuredContext } = input.contextPacket;
+    const freeformContext = summary ?? legacyContext;
     boundary.push(
-      "First assess whether the user-supplied context identifies the problem adequately enough to map it to repository evidence or a bounded next step. Consider plausible explanations internally, but do not present guesses as facts. If the problem remains ambiguous, set contextStatus to needs_more_context and ask exactly one smallest, specific follow-up question in followUpQuestion; do not return a generic checklist. Otherwise set contextStatus to sufficient and followUpQuestion to null. Keep three categories explicit in currentState, steps, scope, and risks: (1) USER-SUPPLIED CONTEXT—claims and symptoms from the packet; (2) REPOSITORY-CONFIRMED FINDINGS—facts you verify in the repository; (3) UNRESOLVED ASSUMPTIONS OR QUESTIONS—anything supported by neither source. Never present user claims as repository-confirmed facts or invent files for external or fictional subsystems.",
-      ...(context ? [`USER-SUPPLIED CONTEXT\n${context}`] : []),
+      "Use the supplied context and general domain knowledge, then inspect the repository to determine what implementation claims can actually be confirmed. General model knowledge is allowed; live web research is not available and must not be claimed. First assess whether one answer would materially unlock an exact scope. If so, set contextStatus to needs_more_context and ask at most one smallest, targeted question in followUpQuestion; do not return a generic checklist. Otherwise set contextStatus to sufficient and followUpQuestion to null. Keep four categories explicit in currentState, steps, scope, and risks: (1) USER-SUPPLIED CONTEXT—facts and claims from the user; (2) GENERAL KNOWLEDGE AND INFERENCES—reasonable domain interpretations, explicitly labeled as inference; (3) REPOSITORY-CONFIRMED FINDINGS—files, behavior, schemas, tests, and constraints actually inspected; (4) UNRESOLVED QUESTIONS—information still needed for exact scope. Never present user claims or general inferences as repository-confirmed facts. Do not invent repository files, existing systems, or implementation details.",
+      ...(freeformContext ? [`USER-SUPPLIED CONTEXT\n${freeformContext}`] : []),
       ...(Object.keys(structuredContext).length > 0 ? [`OPTIONAL STRUCTURED DETAILS\n${JSON.stringify(structuredContext, null, 2)}`] : []),
     );
   }

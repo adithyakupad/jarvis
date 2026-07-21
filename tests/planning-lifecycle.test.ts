@@ -290,9 +290,9 @@ describe("Gate 2 planning lifecycle", () => {
   it("preserves normalized freeform context without artificial structured fields", async () => {
     const context = fixture([proposal(1), proposal(2)]);
     await context.planning.inspect("mk-42", "Resolve icing.");
-    const revised = await context.planning.addContext("run-mk42", 1, { context: "  My suit freezes at high altitude.  " });
-    expect(revised.context_packet).toEqual({ context: "My suit freezes at high altitude." });
-    expect(context.adapter.inspectionRequests[1]?.contextPacket).toEqual({ context: "My suit freezes at high altitude." });
+    const revised = await context.planning.addContext("run-mk42", 1, { summary: "  My suit freezes at high altitude.  " });
+    expect(revised.context_packet).toEqual({ summary: "My suit freezes at high altitude." });
+    expect(context.adapter.inspectionRequests[1]?.contextPacket).toEqual({ summary: "My suit freezes at high altitude." });
   });
 
   it("keeps submitted context when provider replanning fails", async () => {
@@ -305,9 +305,16 @@ describe("Gate 2 planning lifecycle", () => {
   it("restores context after a database restart", async () => {
     const context = fixture([proposal(1)]);
     await context.planning.inspect("mk-42", "Resolve icing.");
-    context.runs.recordContext("run-mk42", 1, { expectedBehavior: "The actuator remains above minimum temperature." });
+    context.runs.recordContext("run-mk42", 1, { summary: "The suit freezes at high altitude." });
     context.database.close();
     const restartedDatabase = openDatabase(context.databasePath); databases.push(restartedDatabase);
-    expect(new RunRepository(restartedDatabase).require("run-mk42").context_packet).toEqual({ expectedBehavior: "The actuator remains above minimum temperature." });
+    expect(new RunRepository(restartedDatabase).require("run-mk42").context_packet).toEqual({ summary: "The suit freezes at high altitude." });
+  });
+
+  it("continues reading legacy Context Packet field names", async () => {
+    const context = fixture([proposal(1)]);
+    await context.planning.inspect("mk-42", "Resolve icing.");
+    context.runs.recordContext("run-mk42", 1, { context: "Legacy freeform context.", problem: "Legacy problem field." });
+    expect(context.runs.require("run-mk42").context_packet).toEqual({ context: "Legacy freeform context.", problem: "Legacy problem field." });
   });
 });

@@ -12,13 +12,13 @@ As of Gate 2.6, hydration is an explicit tracked lifecycle. The HTTP client cons
 
 ## Context Packets
 
-A Context Packet stores external facts that repository inspection cannot establish. Its primary optional field is freeform `context`; structured `problem`, `expectedBehavior`, `actualBehavior`, `reproductionSteps`, `evidence`, and `constraints` remain compatible and optional. At least one normalized non-empty field is required. Packets are associated with a planning run and restored through both run reads and project `activeRun` restoration.
+A Context Packet stores external facts that repository inspection cannot establish. Its canonical freeform field is `summary`; structured `expectedBehavior`, `actualBehavior`, `reproductionSteps`, `evidence`, and `constraints` remain optional. Legacy `context` and `problem` fields remain readable for existing persisted packets. At least one normalized non-empty field is required. Packets are associated with a planning run and restored through both run reads and project `activeRun` restoration.
 
 The UI asks “What should JARVIS know?” and accepts one sentence by default. The planner first assesses whether that sentence adequately identifies the problem. Only when it returns `needs_more_context` does the UI retain the form, display its single focused follow-up question, and offer the collapsed “Add more details” fields. This avoids forcing users to manufacture structured facts while keeping structured packets and audit history intact.
 
 **Modify** corrects or redirects a proposal. **Add Context and Replan** supplies missing symptoms, evidence, reproduction details, or constraints. Context is persisted before provider replanning, so a provider failure does not erase it. Replanning remains read-only, preserves the run and provider session, and creates the next proposal revision while retaining earlier revisions.
 
-Provider prompts delimit user-supplied context and require the proposal to distinguish it from repository-confirmed findings and unresolved assumptions. A user claim is not treated as a repository fact merely because it appears in a Context Packet.
+Provider prompts delimit user-supplied context and require the proposal to distinguish user claims, general knowledge and inferences, repository-confirmed findings, and unresolved questions. General domain reasoning is allowed, but neither user claims nor model inferences become repository facts without inspection. Live web research is unavailable in Gate 2.6; the provider-neutral `ResearchAdapter` seam is reserved for a future cited-evidence mode.
 
 ## Boundary
 

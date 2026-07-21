@@ -31,4 +31,4 @@ Gate 2.5 additionally proves:
 - the real HTTP client restores persisted state and never falls back to mock data; and
 - Proceed remains approval-only and emits no fabricated execution evidence.
 
-Gate 2.6 proves that hydration is single-attempt and explicit, selected runs are restored before the workspace is ready, and initialization failures remain visible. It also validates freeform and structured Context Packet normalization, persistence across restart, provider-failure retention, same-session replanning, focused model follow-up questions, proposal history, API conflicts, prompt provenance boundaries, and browser-client restoration.
+Gate 2.6 proves that hydration is single-attempt and explicit, selected runs are restored before the workspace is ready, and initialization failures remain visible. It also validates summary-only and structured Context Packet normalization, legacy packet compatibility, persistence across restart, provider-failure retention, same-session replanning, focused model follow-up questions, general-knowledge versus repository provenance boundaries, API conflicts, and browser-client restoration.
