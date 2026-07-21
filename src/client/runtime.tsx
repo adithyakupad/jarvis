@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import { DeterministicMockJarvisClientService } from "./mock-service.js";
 import { HttpJarvisClientService } from "./http-service.js";
 import type { JarvisClientService, JarvisSnapshot } from "./service.js";
@@ -9,6 +9,7 @@ export function JarvisRuntimeProvider({ children }: { children: ReactNode }): Re
   const service = useMemo(() => import.meta.env.VITE_JARVIS_DATA_MODE === "mock"
     ? new DeterministicMockJarvisClientService()
     : new HttpJarvisClientService(), []);
+  useEffect(() => { void service.initialize().catch(() => undefined); }, [service]);
   return <ServiceContext.Provider value={service}>{children}</ServiceContext.Provider>;
 }
 

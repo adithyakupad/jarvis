@@ -135,10 +135,14 @@ function RunDetailsView({ project, onBack }: { project: Project; onBack: () => v
 
 export default function App(): ReactNode {
   const service = useJarvisService();
-  const { projects, activeRun, error } = useJarvisSnapshot();
+  const { projects, activeRun, error, hydrationStatus, projectLoading, selectedProjectId } = useJarvisSnapshot();
   const [view, setView] = useState<View>("projects");
   const [projectId, setProjectId] = useState("mk-42");
   const project = projects.find((item) => item.id === projectId) || projects[0];
-  const select = (selected: Project): void => { setProjectId(selected.id); setView("workspace"); void service.selectProject(selected.id); };
+  useEffect(() => { if (hydrationStatus === "ready" && selectedProjectId) { setProjectId(selectedProjectId); setView("workspace"); } }, [hydrationStatus, selectedProjectId]);
+  const select = async (selected: Project): Promise<void> => { await service.selectProject(selected.id); setProjectId(selected.id); setView("workspace"); };
+  if (hydrationStatus === "not_initialized" || hydrationStatus === "hydrating") return <main className="view empty-run" aria-busy="true"><p className="eyebrow">Restoring local state</p><h1>Loading JARVIS.</h1><p>Projects and the latest persisted planning run are being restored.</p></main>;
+  if (hydrationStatus === "failed") return <main className="view empty-run"><p className="eyebrow">Startup unavailable</p><h1>JARVIS could not load.</h1><p className="inline-error" role="alert">{error}</p></main>;
+  if (projectLoading) return <main className="view empty-run" aria-busy="true"><p className="eyebrow">Project restoration</p><h1>Loading project context.</h1><p>The persisted run and proposal history are being restored.</p></main>;
   return <AppShell view={view} setView={setView} status={activeRun?.state || "idle"}>{error && <p className="inline-error global-error" role="alert">{error}</p>}{view === "setup" && <SetupView onCreated={select} />}{view === "projects" && <ProjectsView onSelect={select} onSetup={() => setView("setup")} />}{view === "workspace" && project && <WorkspaceView project={project} onRunDetails={() => setView("run")} />}{view === "run" && project && <RunDetailsView project={project} onBack={() => setView("workspace")} />}</AppShell>;
 }

@@ -49,6 +49,9 @@ export interface JarvisSnapshot {
   providers: ProviderAvailability[];
   activeRun: RunPresentation | null;
   error: string | null;
+  hydrationStatus: "not_initialized" | "hydrating" | "ready" | "failed";
+  projectLoading: boolean;
+  selectedProjectId: string | null;
 }
 
 export interface CreateProjectInput {
@@ -64,6 +67,7 @@ export class InvalidLifecycleActionError extends Error {}
 export interface JarvisClientService {
   subscribe(listener: (snapshot: JarvisSnapshot) => void): () => void;
   getSnapshot(): JarvisSnapshot;
+  initialize(): Promise<void>;
   createProject(input: CreateProjectInput): Promise<Project>;
   selectProject(projectId: string): Promise<void>;
   inspect(projectId: string, instruction: string): Promise<RunPresentation>;

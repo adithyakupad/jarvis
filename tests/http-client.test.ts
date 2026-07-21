@@ -6,29 +6,69 @@ const proposal = { objective: "Inspect validation", currentState: "Validation ex
 const run = { id: "run-1", project_id: "mk-42", provider: "codex", provider_session_id: "thread-1", instruction: "Inspect", proposal, proposal_revision: 1, approved_proposal_revision: null, approval_decision: null, status: "awaiting_approval", failure: null, created_at: "2026-07-21T13:00:00.000Z", completed_at: null };
 
 function response(body: unknown, status = 200): Response { return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }); }
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  return { promise: new Promise<T>((done) => { resolve = done; }), resolve };
+}
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("HTTP client service", () => {
-  it("maps API data and restores the persisted active run", async () => {
+  it("performs no constructor requests and shares one initialization across repeated calls", async () => {
     const storage = new Map<string, string>();
     vi.stubGlobal("window", { localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) } });
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    const projectResponse = deferred<Response>();
+    const fetchMock = vi.fn(async (url: string) => {
       if (url.endsWith("/api/setup/providers")) return response({ providers: [{ provider: "codex", installed: true, authenticated: true, version: "1", detail: "Ready" }] });
-      if (url.endsWith("/api/projects")) return response({ projects: [project] });
+      if (url.endsWith("/api/projects")) return projectResponse.promise;
       return response({ project, activeRun: { run, revisions: [proposal] } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new HttpJarvisClientService();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(service.getSnapshot().hydrationStatus).toBe("not_initialized");
+    const first = service.initialize();
+    const second = service.initialize();
+    expect(first).toBe(second);
+    expect(service.getSnapshot()).toMatchObject({ hydrationStatus: "hydrating", activeRun: null });
+    projectResponse.resolve(response({ projects: [project] }));
+    await first;
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(service.getSnapshot()).toMatchObject({ projects: [{ id: "mk-42" }], activeRun: { state: "awaiting approval", run: { id: "run-1" } }, error: null });
+    expect(service.getSnapshot()).toMatchObject({ hydrationStatus: "ready", projectLoading: false, selectedProjectId: "mk-42" });
+  });
+
+  it("does not expose a ready project until its active run response is applied", async () => {
+    vi.stubGlobal("window", { localStorage: { getItem: () => null, setItem: () => undefined } });
+    const selected = deferred<Response>();
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => url.endsWith("/api/projects/mk-42") ? selected.promise : response(url.endsWith("providers") ? { providers: [] } : { projects: [] })));
+    const service = new HttpJarvisClientService();
+    const loading = service.selectProject("mk-42");
+    expect(service.getSnapshot()).toMatchObject({ projectLoading: true, activeRun: null, selectedProjectId: null, hydrationStatus: "not_initialized" });
+    selected.resolve(response({ project, activeRun: { run, revisions: [proposal] } }));
+    await loading;
+    expect(service.getSnapshot()).toMatchObject({ projectLoading: false, selectedProjectId: "mk-42", activeRun: { run: { proposal_revision: 1 } } });
+  });
+
+  it("distinguishes hydrated projects with no run from unfinished hydration", async () => {
+    vi.stubGlobal("window", { localStorage: { getItem: () => null, setItem: () => undefined } });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.endsWith("providers")) return response({ providers: [] });
+      if (url.endsWith("/api/projects")) return response({ projects: [project] });
+      return response({ project, activeRun: null });
     }));
     const service = new HttpJarvisClientService();
+    expect(service.getSnapshot()).toMatchObject({ hydrationStatus: "not_initialized", activeRun: null });
     await service.initialize();
-    expect(service.getSnapshot()).toMatchObject({ projects: [{ id: "mk-42" }], activeRun: { state: "awaiting approval", run: { id: "run-1" } }, error: null });
+    expect(service.getSnapshot()).toMatchObject({ hydrationStatus: "ready", activeRun: null, selectedProjectId: "mk-42" });
   });
 
   it("surfaces backend failure and never creates mock data", async () => {
     vi.stubGlobal("window", { localStorage: { getItem: () => null, setItem: () => undefined } });
     vi.stubGlobal("fetch", vi.fn(async () => response({ error: { message: "API unavailable" } }, 503)));
     const service = new HttpJarvisClientService();
-    await service.initialize();
-    expect(service.getSnapshot()).toMatchObject({ projects: [], providers: [], activeRun: null, error: "API unavailable" });
+    await expect(service.initialize()).rejects.toThrow("API unavailable");
+    expect(service.getSnapshot()).toMatchObject({ projects: [], providers: [], activeRun: null, hydrationStatus: "failed", error: "API unavailable" });
   });
 
   it("keeps Proceed at the approved Gate 2 boundary", async () => {

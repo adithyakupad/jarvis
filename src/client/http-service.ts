@@ -31,17 +31,22 @@ function present(envelope: z.infer<typeof runEnvelopeSchema>): RunPresentation {
 }
 
 export class HttpJarvisClientService implements JarvisClientService {
-  private snapshot: JarvisSnapshot = { projects: [], providers: [], activeRun: null, error: null };
+  private snapshot: JarvisSnapshot = { projects: [], providers: [], activeRun: null, error: null, hydrationStatus: "not_initialized", projectLoading: false, selectedProjectId: null };
   private readonly listeners = new Set<(snapshot: JarvisSnapshot) => void>();
+  private initializationPromise: Promise<void> | null = null;
 
-  constructor(private readonly baseUrl = "") {
-    void this.initialize();
-  }
+  constructor(private readonly baseUrl = "") {}
 
   subscribe(listener: (snapshot: JarvisSnapshot) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   getSnapshot(): JarvisSnapshot { return this.snapshot; }
 
-  async initialize(): Promise<void> {
+  initialize(): Promise<void> {
+    this.initializationPromise ??= this.performInitialization();
+    return this.initializationPromise;
+  }
+
+  private async performInitialization(): Promise<void> {
+    this.patch({ hydrationStatus: "hydrating", error: null });
     try {
       const [providers, projects] = await Promise.all([
         this.request("/api/setup/providers", undefined, z.object({ providers: z.array(ProviderAvailabilitySchema) })),
@@ -51,8 +56,10 @@ export class HttpJarvisClientService implements JarvisClientService {
       const remembered = window.localStorage.getItem("jarvis.activeProjectId");
       const projectId = projects.projects.some((project) => project.id === remembered) ? remembered : projects.projects[0]?.id;
       if (projectId) await this.selectProject(projectId);
+      this.patch({ hydrationStatus: "ready", error: null });
     } catch (error) {
-      this.patch({ error: error instanceof Error ? error.message : "The local JARVIS API is unavailable." });
+      this.patch({ hydrationStatus: "failed", projectLoading: false, error: error instanceof Error ? error.message : "The local JARVIS API is unavailable." });
+      throw error;
     }
   }
 
@@ -65,9 +72,15 @@ export class HttpJarvisClientService implements JarvisClientService {
   }
 
   async selectProject(projectId: string): Promise<void> {
-    const result = await this.request(`/api/projects/${encodeURIComponent(projectId)}`, undefined, projectEnvelopeSchema);
-    window.localStorage.setItem("jarvis.activeProjectId", projectId);
-    this.patch({ activeRun: result.activeRun ? present(result.activeRun) : null, error: null });
+    this.patch({ projectLoading: true, error: null });
+    try {
+      const result = await this.request(`/api/projects/${encodeURIComponent(projectId)}`, undefined, projectEnvelopeSchema);
+      window.localStorage.setItem("jarvis.activeProjectId", projectId);
+      this.patch({ selectedProjectId: projectId, activeRun: result.activeRun ? present(result.activeRun) : null, projectLoading: false, error: null });
+    } catch (error) {
+      this.patch({ projectLoading: false, error: error instanceof Error ? error.message : "Project loading failed." });
+      throw error;
+    }
   }
 
   async inspect(projectId: string, instruction: string): Promise<RunPresentation> {
