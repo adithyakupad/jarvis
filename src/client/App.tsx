@@ -1,0 +1,139 @@
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import type { Project } from "../shared/projects.js";
+import type { PlanProposal } from "../shared/runs.js";
+import { useJarvisService, useJarvisSnapshot } from "./runtime.js";
+import type { RunPresentation, UiWorkflowState } from "./service.js";
+
+type View = "setup" | "projects" | "workspace" | "run";
+
+const stateLabel = (state: UiWorkflowState): string => state.toUpperCase();
+const formatTime = (value: string): string => new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(value));
+
+function StatusPill({ state }: { state: UiWorkflowState | Project["status"] }): ReactNode {
+  return <span className={`status-pill status-${state.replaceAll(" ", "-")}`}>{state.toUpperCase()}</span>;
+}
+
+function AppShell({ view, setView, children, status }: { view: View; setView: (view: View) => void; children: ReactNode; status: UiWorkflowState }): ReactNode {
+  return (
+    <div className="app-shell">
+      <a className="skip-link" href="#main">Skip to main content</a>
+      <header className="global-header">
+        <button className="brand" onClick={() => setView("projects")} aria-label="JARVIS Core, go to projects">
+          <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
+          <span><strong>JARVIS</strong><small>CORE / 0.1</small></span>
+        </button>
+        <div className="system-presence" role="status" aria-live="polite">
+          <span className={`presence-dot presence-${status.replaceAll(" ", "-")}`} aria-hidden="true" />
+          <span>{stateLabel(status)}</span>
+        </div>
+      </header>
+      <div className="body-grid">
+        <nav className="primary-nav" aria-label="Primary">
+          <button className={view === "setup" ? "active" : ""} onClick={() => setView("setup")}><span>01</span>Setup</button>
+          <button className={view === "projects" ? "active" : ""} onClick={() => setView("projects")}><span>02</span>Projects</button>
+          <button className={view === "workspace" ? "active" : ""} onClick={() => setView("workspace")}><span>03</span>Workspace</button>
+          <button className={view === "run" ? "active" : ""} onClick={() => setView("run")}><span>04</span>Run details</button>
+        </nav>
+        <main id="main" tabIndex={-1}>{children}</main>
+      </div>
+    </div>
+  );
+}
+
+function SetupView({ onCreated }: { onCreated: (project: Project) => void }): ReactNode {
+  const service = useJarvisService();
+  const { providers } = useJarvisSnapshot();
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    setBusy(true);
+    const project = await service.createProject({
+      name: String(data.get("name")), objective: String(data.get("objective")), repositoryPath: String(data.get("path")), provider: "codex",
+    });
+    onCreated(project);
+  }
+
+  return (
+    <section className="view setup-view" aria-labelledby="setup-title">
+      <header className="view-header"><p className="eyebrow">Local readiness</p><h1 id="setup-title">Make this device ready.</h1><p>Provider-aware, local by default, and explicit about every execution boundary.</p></header>
+      <ol className="readiness-steps" aria-label="Setup progress"><li className="done"><b>01</b><span>Runtime<small>Node 22.12+ ready</small></span></li><li className="done"><b>02</b><span>Providers<small>Local adapters detected</small></span></li><li><b>03</b><span>Project<small>Create a workspace</small></span></li></ol>
+      <div className="setup-grid">
+        <section className="surface"><div className="section-kicker">Provider matrix</div>{providers.map((provider) => <article className="provider-row" key={provider.provider}><div><h2>{provider.provider === "codex" ? "Codex" : "Claude Code"}</h2><p>{provider.detail}</p></div><span className={provider.authenticated ? "ready" : "neutral"}>{provider.installed ? "Detected" : "Unavailable"}</span></article>)}</section>
+        <form className="surface project-form" onSubmit={(event) => void submit(event)}><div className="section-kicker">New project</div><label>Project name<input name="name" defaultValue="MK 43" required /></label><label>Objective<textarea name="objective" defaultValue="Prepare and validate the next system iteration" required /></label><label>Repository path<input name="path" defaultValue="/Users/example/Projects/MK-43" required /></label><button className="button primary" disabled={busy}>{busy ? "Creating…" : "Create project"}</button></form>
+      </div>
+    </section>
+  );
+}
+
+function ProjectsView({ onSelect, onSetup }: { onSelect: (project: Project) => void; onSetup: () => void }): ReactNode {
+  const { projects } = useJarvisSnapshot();
+  return (
+    <section className="view projects-view" aria-labelledby="projects-title">
+      <header className="view-header split"><div><p className="eyebrow">Project index / {String(projects.length).padStart(2, "0")}</p><h1 id="projects-title">Active systems.</h1><p>Select a project to inspect its current decision and evidence.</p></div><button className="button secondary" onClick={onSetup}>New project</button></header>
+      <div className="project-list">{projects.map((project, index) => <button className="project-card" key={project.id} onClick={() => onSelect(project)}><span className="project-index">{String(index + 1).padStart(2, "0")}</span><span className="project-main"><span className="project-title-line"><strong>{project.name}</strong><StatusPill state={project.status} /></span><span className="project-objective">{project.current_blocker || project.objective}</span><span className="project-meta"><span>PHASE / {project.current_phase || "Ready"}</span><span>PROVIDER / {project.provider}</span></span></span><span className="project-next"><small>Next action</small>{project.next_action}<i aria-hidden="true">↗</i></span></button>)}</div>
+    </section>
+  );
+}
+
+function ProjectContext({ project }: { project: Project }): ReactNode {
+  return <aside className="context-rail" aria-label="Project context"><p className="rail-label">Active project</p><h2>{project.name}</h2><p>{project.objective}</p><dl><div><dt>Provider</dt><dd>{project.provider}</dd></div><div><dt>Repository</dt><dd className="mono">{project.repository_path}</dd></div><div><dt>Current phase</dt><dd>{project.current_phase}</dd></div><div><dt>Next action</dt><dd>{project.next_action}</dd></div></dl></aside>;
+}
+
+function ProposalReview({ presentation, onModify, onCancel, onProceed, error }: { presentation: RunPresentation; onModify: () => void; onCancel: () => void; onProceed: (revision: number) => void; error: string }): ReactNode {
+  const proposal = presentation.run.proposal;
+  if (!proposal) return null;
+  return (
+    <article className="active-object proposal" aria-labelledby="proposal-title">
+      <header className="object-header"><div><p className="eyebrow">Decision object / Revision {proposal.revision}</p><h2 id="proposal-title">{proposal.objective}</h2></div><StatusPill state="awaiting approval" /></header>
+      <p className="current-state">{proposal.currentState}</p>
+      <section className="proposal-section"><h3>Planned sequence</h3><ol>{proposal.steps.map((step, index) => <li key={step}><span>{String(index + 1).padStart(2, "0")}</span><p>{step}</p></li>)}</ol></section>
+      <div className="proposal-grid"><section><h3>Expected scope</h3><ul className="scope-list">{proposal.expectedScope.map((scope) => <li className="mono" key={scope}>{scope}</li>)}</ul></section><section><h3>Risk boundary</h3>{proposal.risks.map((risk) => <p className="risk" key={risk}>{risk}</p>)}</section></div>
+      <section className="completion-test"><span>Completion evidence</span><p>{proposal.completionTest}</p></section>
+      {error && <p className="inline-error" role="alert">{error}</p>}
+      <footer className="decision-bar"><div><span>Current approvable revision</span><strong>REV {proposal.revision}</strong></div><div className="button-group"><button className="button ghost" onClick={onCancel}>Cancel</button><button className="button secondary" onClick={onModify}>Modify</button><button className="button primary" onClick={() => onProceed(proposal.revision)}>Proceed with revision {proposal.revision}</button></div></footer>
+    </article>
+  );
+}
+
+function ActivityObject({ run, onDetails, onCancel }: { run: RunPresentation; onDetails: () => void; onCancel: () => void }): ReactNode {
+  return <article className={`active-object activity activity-${run.state}`}><header className="object-header"><div><p className="eyebrow">Run / {run.run.id}</p><h2>{run.state === "completed" ? "Verification supports completion." : run.state === "cancelled" ? "Run exited safely." : run.state === "failed" ? "Planning could not continue." : "System activity in progress."}</h2></div><StatusPill state={run.state} /></header><div className="activity-core"><div className="activity-orbit" aria-hidden="true"><i /><i /><span /></div><div><p className="state-message">{run.statusMessage}</p><p className="quiet">{run.isGate3Simulation ? "Gate 3 execution and verification are simulated behind the client service boundary." : "Planning behavior follows the Gate 2 domain lifecycle."}</p></div></div>{run.checks.length > 0 && <section className="checks"><h3>Verification evidence</h3>{run.checks.map((check) => <div className={`check check-${check.status}`} key={check.id}><span aria-hidden="true">{check.status === "passed" ? "✓" : "·"}</span><div><strong>{check.label}</strong><small>{check.evidence}</small></div><b>{check.status}</b></div>)}</section>}<footer className="activity-actions"><button className="button secondary" onClick={onDetails}>Open run details</button>{run.state === "working" && <button className="button ghost danger" onClick={onCancel}>Cancel execution</button>}</footer></article>;
+}
+
+function WorkspaceView({ project, onRunDetails }: { project: Project; onRunDetails: () => void }): ReactNode {
+  const service = useJarvisService();
+  const { activeRun } = useJarvisSnapshot();
+  const [instruction, setInstruction] = useState("Inspect the MK 42 diagnostic systems, propose the smallest safe validation update, and keep propulsion controls out of scope.");
+  const [modifying, setModifying] = useState(false);
+  const [modification, setModification] = useState("Narrow the scope to diagnostics and their focused tests only.");
+  const [error, setError] = useState("");
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { headingRef.current?.focus(); }, [activeRun?.state]);
+
+  const invoke = async (operation: () => Promise<unknown>): Promise<void> => { try { setError(""); await operation(); } catch (cause) { setError(cause instanceof Error ? cause.message : "The action could not be completed."); } };
+
+  function center(): ReactNode {
+    if (!activeRun) return <article className="active-object instruction-object"><p className="eyebrow">Instruction / read-only entry</p><h2>What should JARVIS examine?</h2><p>Inspection gathers project-aware context and returns a structured proposal. No files change before explicit approval.</p><label htmlFor="instruction">High-level instruction</label><textarea id="instruction" value={instruction} onChange={(event) => setInstruction(event.target.value)} rows={5} /><div className="instruction-footer"><span><i aria-hidden="true" /> Read-only inspection</span><button className="button primary" onClick={() => void invoke(() => service.inspect(project.id, instruction))}>Inspect and propose</button></div><button className="text-button" onClick={() => void invoke(() => service.demonstrateMalformedProposal(project.id))}>Demonstrate malformed proposal handling</button></article>;
+    if (activeRun.state === "awaiting approval") return modifying ? <article className="active-object modify-object"><p className="eyebrow">Modify / Same run · Revision {activeRun.run.proposal_revision}</p><h2>Refine the proposal boundary.</h2><p>The current proposal remains preserved. Submitting creates revision {activeRun.run.proposal_revision + 1} in this run and keeps the provider session.</p><label htmlFor="modification">Requested change</label><textarea id="modification" value={modification} onChange={(event) => setModification(event.target.value)} rows={4} autoFocus /><div className="button-group"><button className="button ghost" onClick={() => setModifying(false)}>Back</button><button className="button primary" onClick={() => void invoke(async () => { await service.modify(activeRun.run.id, activeRun.run.proposal_revision, modification); setModifying(false); })}>Create revision {activeRun.run.proposal_revision + 1}</button></div></article> : <ProposalReview presentation={activeRun} error={error} onModify={() => setModifying(true)} onCancel={() => void invoke(() => service.cancel(activeRun.run.id))} onProceed={(revision) => void invoke(() => service.proceed(activeRun.run.id, revision))} />;
+    return <ActivityObject run={activeRun} onDetails={onRunDetails} onCancel={() => void invoke(() => service.cancelExecution(activeRun.run.id))} />;
+  }
+
+  return <section className="view workspace-view" aria-labelledby="workspace-title"><header className="workspace-header"><div><p className="eyebrow">Project workspace</p><h1 id="workspace-title" ref={headingRef} tabIndex={-1}>{project.name}</h1></div><div className="workspace-state"><span>Current state</span><strong>{activeRun ? stateLabel(activeRun.state) : "IDLE"}</strong></div></header><p className="sr-only" role="status" aria-live="polite">{activeRun?.statusMessage || "Project is idle and ready for an instruction."}</p><div className="workspace-grid"><ProjectContext project={project} /><div className="center-stage">{center()}</div><aside className="evidence-rail" aria-label="Current context"><p className="rail-label">Context / now</p>{activeRun ? <><dl><div><dt>Run</dt><dd className="mono">{activeRun.run.id}</dd></div><div><dt>Proposal</dt><dd>Revision {activeRun.run.proposal_revision || "—"}</dd></div><div><dt>Approved</dt><dd>{activeRun.run.approved_proposal_revision ? `Revision ${activeRun.run.approved_proposal_revision}` : "Not yet"}</dd></div><div><dt>Session</dt><dd className="mono">{activeRun.run.provider_session_id || "Pending"}</dd></div></dl>{activeRun.revisions.length > 1 && <div className="revision-stack"><span>Revision history</span>{activeRun.revisions.map((item) => <b key={item.revision}>REV {item.revision}{item.revision === activeRun.run.proposal_revision ? " / CURRENT" : " / SUPERSEDED"}</b>)}</div>}</> : <p className="quiet">Project context will remain peripheral until inspection produces a decision.</p>}</aside></div>{activeRun && ["cancelled", "failed", "completed"].includes(activeRun.state) && <button className="reset-demo" onClick={() => void service.resetDemo(project.id)}>Reset demonstration</button>}</section>;
+}
+
+function RunDetailsView({ project, onBack }: { project: Project; onBack: () => void }): ReactNode {
+  const { activeRun } = useJarvisSnapshot();
+  if (!activeRun) return <section className="view empty-run"><p className="eyebrow">Run details</p><h1>No active run.</h1><p>Start an inspection from the project workspace.</p><button className="button primary" onClick={onBack}>Open workspace</button></section>;
+  const proposal = activeRun.run.proposal;
+  return <section className="view run-view" aria-labelledby="run-title"><header className="view-header split"><div><p className="eyebrow">{project.name} / {activeRun.run.id}</p><h1 id="run-title">Run evidence.</h1><p>{activeRun.statusMessage}</p></div><StatusPill state={activeRun.state} /></header><div className="run-grid"><section className="surface event-timeline"><div className="section-kicker">Chronological activity</div>{activeRun.events.length ? <ol>{activeRun.events.map((item, index) => <li key={item.id}><span className="event-sequence">{String(index + 1).padStart(2, "0")}</span><span className={`event-kind kind-${item.kind}`} aria-hidden="true" /><div><strong>{item.title}</strong><p>{item.detail}</p><time dateTime={item.occurredAt}>{formatTime(item.occurredAt)}</time></div></li>)}</ol> : <p className="quiet">Execution events begin after an exact proposal revision is approved.</p>}</section><aside className="run-side"><section className="surface"><div className="section-kicker">Approval record</div><dl><div><dt>Decision</dt><dd>{activeRun.run.approval_decision || "Pending"}</dd></div><div><dt>Current revision</dt><dd>{activeRun.run.proposal_revision || "—"}</dd></div><div><dt>Sealed revision</dt><dd>{activeRun.run.approved_proposal_revision || "—"}</dd></div></dl></section><section className="surface"><div className="section-kicker">Scope reconciliation</div>{activeRun.changedFiles.length ? <ul className="scope-list">{activeRun.changedFiles.map((file) => <li className="mono" key={file}>{file}</li>)}</ul> : <p className="quiet">No simulated file changes recorded.</p>}</section></aside></div>{proposal && <section className="surface run-proposal"><div className="section-kicker">Approved decision object</div><h2>{proposal.objective}</h2><p>{proposal.completionTest}</p></section>}<button className="button secondary" onClick={onBack}>Return to workspace</button></section>;
+}
+
+export default function App(): ReactNode {
+  const { projects, activeRun } = useJarvisSnapshot();
+  const [view, setView] = useState<View>("projects");
+  const [projectId, setProjectId] = useState("mk-42");
+  const project = projects.find((item) => item.id === projectId) || projects[0];
+  const select = (selected: Project): void => { setProjectId(selected.id); setView("workspace"); };
+  return <AppShell view={view} setView={setView} status={activeRun?.state || "idle"}>{view === "setup" && <SetupView onCreated={select} />}{view === "projects" && <ProjectsView onSelect={select} onSetup={() => setView("setup")} />}{view === "workspace" && project && <WorkspaceView project={project} onRunDetails={() => setView("run")} />}{view === "run" && project && <RunDetailsView project={project} onBack={() => setView("workspace")} />}</AppShell>;
+}

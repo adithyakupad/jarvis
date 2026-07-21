@@ -1,8 +1,8 @@
 # UI Integration Requests
 
-**Status:** Research-phase handoff; not a final contract proposal
+**Status:** Updated after Gate 2 and initial UI implementation; Gate 3 items remain provisional
 
-**Constraint:** Gate 2 is being implemented concurrently. This document records UI needs without creating or changing shared types.
+**Constraint:** Gate 2 contracts are authoritative. This document records remaining UI needs without creating or changing shared types.
 
 ## 1. Confirmed from the repository
 
@@ -41,7 +41,18 @@ The provider contract currently contains:
 - inspection input: project id, repository path, instruction;
 - proposal: objective, current state, ordered steps, expected scope, risks, completion test, and nullable provider session id.
 
-The PRD requires read-only inspection and structured proposals. Gate 2 is expected to establish the durable workflow around these concepts.
+The PRD requires read-only inspection and structured proposals. Gate 2 establishes the durable workflow around these concepts.
+
+Gate 2 now confirms:
+
+- an initial proposal must be revision 1 and validate against `PlanProposalSchema`;
+- Modify preserves the same run and provider session while creating the next integer revision;
+- only an `awaiting_approval` run can be modified, approved, or cancelled through the planning lifecycle;
+- stale revisions are rejected before modification or approval;
+- Proceed records `approval_decision: proceed` and seals `approved_proposal_revision` to the submitted current revision;
+- Cancel records `approval_decision: cancel`, clears approved revision, and prevents later approval;
+- malformed provider output persists a failed run with no proposal;
+- proposal revisions remain recoverable from ordered run events.
 
 ### Execution foundations
 
@@ -97,20 +108,16 @@ These assumptions are needed to shape the UX but must be confirmed after Gate 2/
 - Terminal cancellation/failure reports whether partial changes are known, absent, present, or unknown.
 - Errors expose a stable category, plain-language summary, recoverability, and optional technical detail without secrets.
 
-## 3. Decisions blocked on Gate 2
+## 3. Gate 2 decisions resolved and remaining transport questions
 
-Reinspect the repository after Gate 2 is committed before component architecture is approved.
+The lifecycle, revision, Modify, Proceed, Cancel, and malformed-proposal behaviors above are resolved by Gate 2. Remaining integration questions are:
 
-1. **Canonical planning state machine.** Exact run statuses and valid transitions for inspection, proposal generation, awaiting approval, modification, and cancellation.
-2. **Proposal revision identity.** Whether integer revision is sufficient or approval requires an immutable digest/token in addition to run id and revision.
-3. **Modify semantics.** Whether modification starts a new inspection, resumes a provider session, or can do either; how the previous revision is retained.
-4. **Pre-execution Cancel semantics.** Whether cancellation is an approval decision, a terminal run state, or both.
-5. **Concurrency/idempotency.** Behavior for double submission, stale revision approval, simultaneous modification, refresh during mutation, and more than one active run per project.
-6. **Inspection progress.** Whether Gate 2 emits/persists milestones or only returns a final proposal.
-7. **Failure/blocker model.** Structured categories and recovery guidance versus plain strings.
-8. **API surface.** Routes/commands, validation errors, response envelopes, and whether the client talks to HTTP endpoints or another bridge.
-9. **Durable project reconciliation during Gate 2.** Which project fields update after inspection/cancel and when project logs are appended.
-10. **Authorization boundary for execution.** Exact server check proving execution uses the approved immutable proposal revision.
+1. **Browser transport.** Routes/commands, validation-error envelopes, and request cancellation are not yet exposed to the React client.
+2. **Concurrency/idempotency across transport.** The repository rejects stale revisions, but HTTP-level duplicate submission and simultaneous-command behavior still need definition.
+3. **Inspection progress.** Gate 2 persists inspection start and final proposal/failure events; a browser streaming mechanism is deferred.
+4. **Failure/blocker presentation.** Persisted failure is currently unknown-shaped and needs a display-safe error envelope.
+5. **Project reconciliation.** The exact project-field updates and log entries after planning-only terminal states need confirmation.
+6. **Execution authorization.** Gate 3 must consume the exact `approved_proposal_revision` and reject any proposal/scope mismatch.
 
 ## 4. Decisions blocked on Gate 3
 
