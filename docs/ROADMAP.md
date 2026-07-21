@@ -1,57 +1,62 @@
-# Roadmap
+# JARVIS v0.1 Roadmap
 
-## Phase 0 — Product definition
+## Gate 1 — Foundation
 
-- [ ] Approve PRD v0.1
-- [ ] Choose final repository name
-- [ ] Choose desktop framework
-- [ ] Define first implementation slice
+- [x] Approve TypeScript architecture and migration plan
+- [x] Align product documentation and MK 42 example
+- [x] Add TypeScript build and test setup
+- [x] Add SQLite migrations
+- [x] Create and retrieve projects
+- [x] Preserve state across restarts
+- [x] Define shared provider contract
+- [x] Detect Codex and Claude Code installations
+- [x] Run tests and commit the gate
 
-## Phase 1 — Durable project state
+## Gate 2 — Planning and approval
 
-- [ ] Project model
-- [ ] Append-only activity log
-- [ ] SQLite persistence
-- [ ] Restart-persistence tests
-- [ ] Project inspection CLI
+- [ ] Read-only inspection
+- [ ] Structured proposal
+- [ ] Proceed
+- [ ] Modify and proposal revision
+- [ ] Cancel
+- [ ] Deterministic fake-adapter tests
+- [ ] Run tests and commit the gate
 
-## Phase 2 — Context and planning
+## Gate 3 — Live Codex execution
 
-- [ ] Active project state
-- [ ] Context builder
-- [ ] Proposal schema
-- [ ] Proceed / Modify / Cancel lifecycle
-- [ ] Execution-envelope schema
-
-## Phase 3 — Agent execution
-
-- [ ] Shared agent adapter interface
-- [ ] Codex adapter
-- [ ] Claude Code adapter
-- [ ] Streaming run events
+- [ ] Codex SDK execution
+- [ ] Normalized run events
+- [ ] SSE event streaming
 - [ ] Cancellation
-- [ ] Session persistence
+- [ ] Verification
+- [ ] Project reconciliation and append-only log
+- [ ] Run tests and commit the gate
 
-## Phase 4 — Verification and reconciliation
+## Gate 4 — Claude Code
 
-- [ ] Test/build verification
-- [ ] Git diff capture
-- [ ] Structured agent result
-- [ ] Project-state reconciliation
-- [ ] Completion reports
+- [ ] Constrained `stream-json` subprocess
+- [ ] Session persistence and resumption
+- [ ] Permission handling without bypass flags
+- [ ] Adapter conformance tests
+- [ ] Run tests and commit the gate
 
-## Phase 5 — JARVIS interface
+## Gate 5 — Interface and parity
 
-- [ ] Command-center shell
-- [ ] Presence states
-- [ ] Project status view
-- [ ] Approval view
-- [ ] Working-state view
-- [ ] Completion report
+- [ ] Setup view
+- [ ] Projects view
+- [ ] Project workspace
+- [ ] Run details
+- [ ] Fresh-clone README verification
+- [ ] TypeScript parity confirmation
+- [ ] Remove superseded Python only after acceptance passes
+- [ ] Release acceptance test
 
-## Phase 6 — Voice
+## Later
 
-- [ ] Push-to-talk
-- [ ] Speech recognition
-- [ ] Restrained British-assistant voice preset
-- [ ] Interruption handling
+- v0.2: Ollama provider
+- v0.3: Whisper push-to-talk input
+- v0.4: Original spoken output
+- v0.5: School module
+- v0.6: Research module
+- v0.7: Content module
+- v0.8: Makerspace module

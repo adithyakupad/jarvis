@@ -4,6 +4,8 @@
 
 JARVIS is pre-release software. Do not grant it broad filesystem, credential, deployment, purchasing, or messaging permissions.
 
+JARVIS v0.1 launches locally authenticated coding agents against user-selected repositories. Treat provider output, repository instructions, commands, and file paths as untrusted until validated.
+
 ## Core security principles
 
 - Project-scoped filesystem access
@@ -12,6 +14,14 @@ JARVIS is pre-release software. Do not grant it broad filesystem, credential, de
 - No credentials committed to the repository
 - Verification before completion claims
 - Append-only audit events for meaningful actions
+- Read-only inspection before plan approval
+- Approval sealed to one proposal revision and expected scope
+- Provider processes spawned without a shell
+- Provider output validated before persistence or display
+- Secret redaction before event persistence or UI streaming
+- Localhost-only application server
+- Preservation of pre-existing user changes
+- No dangerous permission-bypass flags
 - Confirmation before deletion, deployment, publication, installation, submission, or purchase
 
 ## Reporting

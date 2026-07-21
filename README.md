@@ -1,95 +1,116 @@
 # JARVIS
 
-An open-source personal execution layer for Codex and Claude Code.
+JARVIS is an open-source, local execution interface for Codex and Claude Code.
 
-JARVIS maintains persistent project context, interprets high-level instructions, inspects the current state of the user’s work, proposes an execution plan, operates after approval, verifies the result, and updates the project record automatically.
-
-## Core interaction
+The goal is simple:
 
 ```text
-High-level instruction
-→ inspect context and current state
-→ propose a plan
-→ user approves or modifies
-→ execute with Codex or Claude Code
+Create a project
+→ give JARVIS a high-level instruction
+→ review the proposed plan
+→ approve, modify, or cancel it
+→ let the selected coding agent work
 → verify the result
-→ update project state and logs
-→ report completion
+→ remember what happened
 ```
 
-## Example
+## Current status
 
-**User**
+JARVIS v0.1 is being built in sequential, tested gates.
 
-> Jarvis, get persistent project memory working.
+Gate 1 provides:
 
-**JARVIS**
+- A TypeScript runtime.
+- SQLite project persistence and migrations.
+- Project creation and retrieval.
+- Codex and Claude Code installation detection.
+- A shared provider contract for later execution gates.
 
-> You want project context to survive application restarts and be retrieved automatically when that project becomes active.
->
-> Proposed approach:
-> 1. Add SQLite-backed project storage.
-> 2. Associate memories with project IDs.
-> 3. Add project-scoped retrieval.
-> 4. Add restart-persistence tests.
-> 5. Verify the flow and update the project log.
->
-> Expected scope: `app/projects/`, `app/memory/`, and persistence tests. No interface changes.
->
-> Proceed?
+The earlier Python implementation remains available until the TypeScript version reaches verified parity.
 
-## v1 target user
+## Example project
 
-Technical AI-native builders who already use Codex or Claude Code and want one persistent, MCU-inspired command layer across their projects.
+The examples use **MK 42**, one of Tony Stark's Iron Man suits, as the project:
 
-## v1 scope
+```text
+Name: MK 42
+Objective: Upgrade and validate the MK 42 armor systems
+Repository: /Users/example/Projects/MK-42
+Provider: Codex
+```
 
-- JARVIS-owned projects
-- Persistent project status
-- Append-only activity logs
-- Context packets for Codex and Claude Code
-- Plan → approval → execution workflow
-- Bounded execution permissions
-- Verification and project-state reconciliation
-- One opinionated MCU-inspired desktop interface
+The project name is only an example. JARVIS does not include Marvel artwork, dialogue, voices, or other licensed assets.
 
-## Not in v1
+## Requirements
 
-- ChatGPT Projects synchronization
-- Claude Projects synchronization
-- Local model inference
-- Mobile apps
-- Smart-home control
-- Calendar and email automation
-- Wake-word detection
-- Multi-user hosting
-- Plugin marketplace
+- Node.js 22.12 or newer
+- npm
+- Codex and/or Claude Code installed for provider detection
 
-## Repository status
+Python 3.12 is needed only for the temporary legacy implementation during migration.
 
-**Phase:** product definition and architecture.
+## Run Gate 1
 
-The current source of truth is [`docs/PRD.md`](docs/PRD.md).
+Install dependencies and compile TypeScript:
 
-## Development order
+```bash
+npm install
+npm run build
+```
 
-1. Product requirements
-2. Technical architecture
-3. Project and log persistence
-4. Agent adapters
-5. Plan approval workflow
-6. Verification and reconciliation
-7. MCU-inspired interface
-8. Voice
+Create MK 42 in a local SQLite database:
 
-## Open-source principles
+```bash
+npm run jarvis -- \
+  --database ./data/jarvis.db \
+  project create \
+  --id mk-42 \
+  --name "MK 42" \
+  --objective "Upgrade and validate the MK 42 armor systems" \
+  --repository-path /Users/example/Projects/MK-42 \
+  --provider codex \
+  --current-phase foundation \
+  --next-action "Inspect the current armor systems"
+```
 
-- Fresh architecture; no renamed JARVIS clone
-- Existing libraries used as declared dependencies
-- Directly adapted code attributed in `docs/DESIGN_REFERENCES.md`
-- User-owned, inspectable project state and logs
-- Provider-neutral core
+Retrieve it in a new process:
+
+```bash
+npm run jarvis -- --database ./data/jarvis.db project get mk-42
+```
+
+Detect installed providers:
+
+```bash
+npm run jarvis -- provider detect
+```
+
+Run the Gate 1 checks:
+
+```bash
+npm test
+npm run typecheck
+```
+
+## Planned v0.1 workflow
+
+Later approved gates add:
+
+1. Inspection and structured plans.
+2. Proceed, Modify, and Cancel controls.
+3. Live Codex execution, events, cancellation, and verification.
+4. Claude Code execution and session resumption.
+5. A small four-view interface.
+
+Ollama, Whisper, voice, calendar, email, mobile apps, embeddings, and domain modules are not part of v0.1.
+
+## Documentation
+
+- [Product requirements](docs/PRD.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Design references](docs/DESIGN_REFERENCES.md)
+- [Security policy](SECURITY.md)
 
 ## License
 
-Apache License 2.0. See [`LICENSE`](LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE).

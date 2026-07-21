@@ -2,7 +2,7 @@
 
 ## Mission
 
-Build JARVIS as a fresh, provider-neutral personal execution layer above Codex and Claude Code.
+Build JARVIS v0.1 as a fresh, provider-neutral, text-first execution interface for Codex and Claude Code.
 
 ## Source of truth
 
@@ -15,7 +15,7 @@ Read these documents before changing product behavior:
 
 ## Current phase
 
-Product definition and repository setup. Do not implement major features until the PRD is explicitly approved.
+Approved gated implementation. Complete, verify, and commit one gate before beginning the next.
 
 ## Product rules
 
@@ -29,28 +29,25 @@ Product definition and repository setup. Do not implement major features until t
 - Never claim completion without verification evidence.
 - Never silently expand an approved execution scope.
 
-## Initial implementation order
+## Implementation gates
 
-1. Project and activity-log data models
-2. SQLite persistence
-3. Deterministic project CRUD and restart persistence
-4. Context builder
-5. Agent adapter protocol
-6. Codex adapter
-7. Claude Code adapter
-8. Proposal and approval workflow
-9. Execution status and verification
-10. Reconciliation
-11. Interface
-12. Voice
+1. TypeScript, SQLite project persistence, provider contract, and detection
+2. Inspection, proposals, Proceed/Modify/Cancel, and fake-adapter tests
+3. Live Codex execution, events, SSE, cancellation, verification, and reconciliation
+4. Claude Code execution, resumption, permissions, and conformance tests
+5. Four-view interface, fresh-clone verification, parity, and Python removal
 
 ## Engineering standards
 
-- Python 3.12+
+- TypeScript end to end for v0.1
+- Node.js 22.12+
 - Type annotations for public functions
-- Pydantic models at API boundaries
+- Zod validation at process and API boundaries
 - SQLite initially
 - Tests for persistence and state transitions
+- Deterministic fake providers for workflow tests
+- Never use dangerous provider permission-bypass flags
+- Keep Python runnable until TypeScript parity is verified
 - No credentials in source control
 - No destructive filesystem operations without explicit approval
 - Prefer small vertical slices over broad scaffolding

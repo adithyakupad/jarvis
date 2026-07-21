@@ -1,11 +1,13 @@
-id: forge
-name: Forge
-objective: Build useful workflow software for biomedical research
+id: mk-42
+name: MK 42
+objective: Upgrade and validate the MK 42 armor systems
 status: active
-current_phase: seed-demo
-repository_path: /Users/example/Projects/Forge
-agent_provider: codex
-agent_session_id: null
-latest_result: Seed demo data completed
-current_blocker: Slice 4 has not been defined
-next_action: Inspect the current app and propose Slice 4
+repository_path: /Users/example/Projects/MK-42
+provider: codex
+provider_session_id: null
+current_phase: foundation
+latest_result: Project persistence is operational
+current_blocker: ""
+next_action: Inspect the current armor systems
+created_at: 2026-07-21T12:00:00.000Z
+updated_at: 2026-07-21T12:00:00.000Z

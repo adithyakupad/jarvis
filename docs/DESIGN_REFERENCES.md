@@ -5,11 +5,16 @@ This project studies existing systems but implements a fresh architecture.
 ## Ideas studied
 
 - Persistent personal and project context
+- Local relevance filtering and rolling context renewal
+- Token-budgeted context packets for frontier models
+- Provenance-linked extraction, correction, and supersession
+- Replaceable local inference runtimes
 - Agent session continuation
 - Plan-before-execution workflows
 - Human approval and bounded permissions
 - Append-only activity history
 - Realtime voice and interruption handling
+- Speech transcription as an input adapter rather than project truth
 - MCU-inspired spatial presence states
 - Provider-neutral tool and context protocols
 
@@ -25,6 +30,8 @@ This project studies existing systems but implements a fresh architecture.
 - Khoj — personal knowledge ingestion and retrieval
 - Home Assistant Assist — modular voice pipeline and ambient-device concepts
 - MCP — provider-neutral resources and tools
+- Ollama — candidate local model runtime boundary
+- Whisper — candidate speech-transcription boundary
 
 ## Directly adapted code
 
