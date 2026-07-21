@@ -1,0 +1,11 @@
+id: forge
+name: Forge
+objective: Build useful workflow software for biomedical research
+status: active
+current_phase: seed-demo
+repository_path: /Users/example/Projects/Forge
+agent_provider: codex
+agent_session_id: null
+latest_result: Seed demo data completed
+current_blocker: Slice 4 has not been defined
+next_action: Inspect the current app and propose Slice 4
