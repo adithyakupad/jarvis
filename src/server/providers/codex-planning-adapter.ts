@@ -40,6 +40,7 @@ export function buildPlanningPrompt(input: InspectionRequest): string {
     "This is read-only planning: do not modify files, execute the proposed work, or request elevated permissions.",
     `User instruction: ${input.instruction}`,
     "Include only repository-confirmed validation commands in validationCommands. These commands become part of the approval boundary.",
+    input.repositoryCacheHit ? "The server fingerprint confirms Git HEAD and working-tree contents are unchanged since the prior inspection. Reuse prior findings and read only files needed for this revision." : "Repository state is new or changed. Inspect it as needed to ground this proposal.",
   ];
   if (input.modification && input.previousProposal) {
     boundary.push(
@@ -72,9 +73,9 @@ export class CodexPlanningAdapter implements AgentAdapter {
   }
 
   async inspect(input: InspectionRequest): Promise<unknown> {
-    const availability = await this.detect();
-    if (!availability.installed || availability.authenticated !== true) {
-      throw new ProviderUnavailableError(availability.detail);
+    if (!input.providerReadinessVerified) {
+      const availability = await this.detect();
+      if (!availability.installed || availability.authenticated !== true) throw new ProviderUnavailableError(availability.detail);
     }
     const options = {
       workingDirectory: input.repositoryPath,
@@ -96,8 +97,10 @@ export class CodexPlanningAdapter implements AgentAdapter {
   }
 
   async execute(input: ExecutionRequest, onEvent: AgentEventHandler): Promise<ExecutionResult> {
-    const availability = await this.detect();
-    if (!availability.installed || availability.authenticated !== true) throw new ProviderUnavailableError(availability.detail);
+    if (!input.providerReadinessVerified) {
+      const availability = await this.detect();
+      if (!availability.installed || availability.authenticated !== true) throw new ProviderUnavailableError(availability.detail);
+    }
     const options = { workingDirectory: input.repositoryPath, sandboxMode: "workspace-write" as const, approvalPolicy: "never" as const, networkAccessEnabled: false };
     const thread = input.providerSessionId ? this.codex.resumeThread(input.providerSessionId, options) : this.codex.startThread(options);
     const prompt = [
@@ -109,6 +112,7 @@ export class CodexPlanningAdapter implements AgentAdapter {
       `Approved proposal: ${JSON.stringify(input.proposal)}`,
       input.contextPacket ? `Persisted user context: ${JSON.stringify(input.contextPacket)}` : "",
       "Make the requested changes and report what was actually completed. JARVIS performs independent verification.",
+      "JARVIS owns the final authoritative full test run. Do not repeat the repository's full test command solely as final confirmation; targeted checks needed while implementing are allowed.",
     ].filter(Boolean).join("\n\n");
     const streamed = await thread.runStreamed(prompt);
     let summary = "";

@@ -85,7 +85,7 @@ describe("HTTP client service", () => {
     expect(service.getSnapshot()).toMatchObject({ projects: [], providers: [], activeRun: null, hydrationStatus: "failed", error: "API unavailable" });
   });
 
-  it("turns Proceed into approval followed by server-controlled execution", async () => {
+  it("turns Proceed into one server-controlled asynchronous transition", async () => {
     vi.stubGlobal("window", { localStorage: { getItem: () => null, setItem: () => undefined } });
     const approved = { ...run, status: "approved", approval_decision: "proceed", approved_proposal_revision: 1 };
     const fetchMock = vi.fn(async (url: string) => url.endsWith("/proceed") || url.endsWith("/execute") ? response({ run: approved, revisions: [proposal] }) : response(url.endsWith("providers") ? { providers: [] } : { projects: [] }));
@@ -93,7 +93,27 @@ describe("HTTP client service", () => {
     const service = new HttpJarvisClientService();
     const presentation = await service.proceed("run-1", 1);
     expect(presentation).toMatchObject({ state: "approved", events: [], changedFiles: [] });
-    expect(fetchMock).toHaveBeenCalledWith("/api/runs/run-1/execute", expect.objectContaining({ method: "POST", body: "{}" }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("/api/runs/run-1/proceed", expect.objectContaining({ method: "POST", body: JSON.stringify({ revision: 1 }) }));
+  });
+
+  it("closes the live event stream after a terminal run is restored", async () => {
+    vi.stubGlobal("window", { localStorage: { getItem: () => null, setItem: () => undefined } });
+    const approved = { ...run, status: "approved", approval_decision: "proceed", approved_proposal_revision: 1 };
+    const completed = { ...approved, status: "completed", completed_at: "2026-07-21T13:01:00.000Z", verification: { repositoryValid: true, message: "Tests passed.", checks: [], validation: null } };
+    class FakeEventSource {
+      static latest: FakeEventSource; closed = false; listeners = new Map<string, () => void>();
+      constructor(readonly url: string) { FakeEventSource.latest = this; }
+      addEventListener(type: string, listener: () => void): void { this.listeners.set(type, listener); }
+      close(): void { this.closed = true; }
+    }
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => response(url.endsWith("/proceed") ? { run: approved, revisions: [proposal], events: [] } : { run: completed, revisions: [proposal], events: [] })));
+    const service = new HttpJarvisClientService(); await service.proceed("run-1", 1);
+    FakeEventSource.latest.listeners.get("execution_completed")?.();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(FakeEventSource.latest.closed).toBe(true);
+    expect(service.getSnapshot().activeRun?.state).toBe("completed");
   });
 
   it("maps context submission and restores its revised proposal", async () => {

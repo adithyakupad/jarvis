@@ -17,6 +17,7 @@ function stateFor(run: Run): UiWorkflowState {
 function present(envelope: z.infer<typeof runEnvelopeSchema>): RunPresentation {
   const approved = envelope.run.status === "approved";
   const status = envelope.run.status;
+  const latestStage = envelope.events.at(-1)?.type.replaceAll("_", " ");
   return {
     ...envelope,
     state: stateFor(envelope.run),
@@ -28,11 +29,11 @@ function present(envelope: z.infer<typeof runEnvelopeSchema>): RunPresentation {
         : status === "failed"
           ? String((envelope.run.failure as { message?: string } | null)?.message ?? "The run failed.")
           : status === "completed" ? envelope.run.verification?.message ?? "Execution and verification completed."
-          : status === "executing" || status === "preparing_execution" ? `Executing approved proposal revision ${envelope.run.approved_proposal_revision}.`
-          : status === "verifying" ? "Verifying repository changes and approved checks."
+          : status === "executing" || status === "preparing_execution" ? latestStage ?? `Executing approved proposal revision ${envelope.run.approved_proposal_revision}.`
+          : status === "verifying" ? latestStage ?? "Collecting repository evidence and running independent validation."
           : status === "awaiting_approval"
             ? `Proposal revision ${envelope.run.proposal_revision} is ready for your decision.`
-            : "Inspecting the repository in read-only mode.",
+            : latestStage ?? "Task received. Inspecting the repository in read-only mode.",
   };
 }
 
@@ -40,6 +41,7 @@ export class HttpJarvisClientService implements JarvisClientService {
   private snapshot: JarvisSnapshot = { projects: [], providers: [], activeRun: null, error: null, hydrationStatus: "not_initialized", projectLoading: false, selectedProjectId: null };
   private readonly listeners = new Set<(snapshot: JarvisSnapshot) => void>();
   private initializationPromise: Promise<void> | null = null;
+  private readonly activeStreams = new Map<string, () => void>();
 
   constructor(private readonly baseUrl = "") {}
 
@@ -114,7 +116,7 @@ export class HttpJarvisClientService implements JarvisClientService {
     this.patch({ activeRun: pending });
     try {
       const result = await this.request(`/api/projects/${encodeURIComponent(projectId)}/instructions`, { method: "POST", body: JSON.stringify({ instruction }) }, runEnvelopeSchema);
-      return this.setRun(present(result));
+      const accepted = this.setRun(present(result)); this.watchRun(accepted.run.id); return accepted;
     } catch (error) {
       await this.selectProject(projectId).catch(() => undefined);
       throw error;
@@ -124,22 +126,19 @@ export class HttpJarvisClientService implements JarvisClientService {
   async modify(runId: string, currentRevision: number, modification: string): Promise<RunPresentation> {
     this.patch({ activeRun: this.snapshot.activeRun ? { ...this.snapshot.activeRun, state: "modifying", statusMessage: "Codex is revising the proposal in the same session." } : null });
     const result = await this.request(`/api/runs/${encodeURIComponent(runId)}/modify`, { method: "POST", body: JSON.stringify({ currentRevision, modification }) }, runEnvelopeSchema);
-    return this.setRun(present(result));
+    const accepted = this.setRun(present(result)); this.watchRun(runId); return accepted;
   }
 
   async addContext(runId: string, currentRevision: number, packetInput: ContextPacket): Promise<RunPresentation> {
     const packet = ContextPacketSchema.parse(packetInput);
     this.patch({ activeRun: this.snapshot.activeRun ? { ...this.snapshot.activeRun, state: "planning", statusMessage: "Context saved. Codex is replanning in the same session." } : null });
     const result = await this.request(`/api/runs/${encodeURIComponent(runId)}/context`, { method: "POST", body: JSON.stringify({ currentRevision, ...packet }) }, contextEnvelopeSchema);
-    return this.setRun(present(result));
+    const accepted = this.setRun(present(result)); this.watchRun(runId); return accepted;
   }
 
   async proceed(runId: string, revision: number): Promise<RunPresentation> {
     const approved = await this.request(`/api/runs/${encodeURIComponent(runId)}/proceed`, { method: "POST", body: JSON.stringify({ revision }) }, runEnvelopeSchema);
-    this.setRun(present(approved));
-    const stopStreaming = this.streamRun(runId);
-    try { return this.setRun(present(await this.request(`/api/runs/${encodeURIComponent(runId)}/execute`, { method: "POST", body: "{}" }, runEnvelopeSchema))); }
-    finally { stopStreaming(); }
+    const accepted = this.setRun(present(approved)); this.watchRun(runId); return accepted;
   }
 
   async cancel(runId: string): Promise<RunPresentation> {
@@ -165,12 +164,14 @@ export class HttpJarvisClientService implements JarvisClientService {
     return schema.parse(body);
   }
 
-  private streamRun(runId: string): () => void {
-    if (typeof EventSource === "undefined") return () => undefined;
+  private watchRun(runId: string): void {
+    this.activeStreams.get(runId)?.();
+    if (typeof EventSource === "undefined") return;
     const source = new EventSource(`${this.baseUrl}/api/runs/${encodeURIComponent(runId)}/events/stream`);
-    const refresh = (): void => { void this.request(`/api/runs/${encodeURIComponent(runId)}`, undefined, runEnvelopeSchema).then((envelope) => this.setRun(present(envelope))).catch(() => undefined); };
-    for (const type of ["execution_started", "provider_message", "file_change", "command_started", "command_completed", "warning", "verification_started", "verification_result", "execution_completed", "execution_failed"]) source.addEventListener(type, refresh);
-    return () => source.close();
+    const stop = (): void => { source.close(); this.activeStreams.delete(runId); };
+    this.activeStreams.set(runId, stop);
+    const refresh = (): void => { void this.request(`/api/runs/${encodeURIComponent(runId)}`, undefined, runEnvelopeSchema).then((envelope) => { this.setRun(present(envelope)); if (["awaiting_approval", "completed", "failed", "cancelled", "cancelled_before_execution"].includes(envelope.run.status)) stop(); }).catch(() => undefined); };
+    for (const type of ["request_accepted", "loading_project_state", "checking_provider", "provider_ready", "inspection_cache_hit", "inspection_cache_miss", "repository_inspection_started", "repository_inspection_completed", "provider_invocation_started", "proposal_ready", "execution_accepted", "capturing_repository_baseline", "repository_baseline_completed", "execution_started", "provider_execution_started", "first_provider_event", "provider_message", "file_change", "command_started", "command_completed", "warning", "provider_execution_completed", "collecting_repository_changes", "repository_reconciliation_completed", "validation_detected", "validation_started", "validation_completed", "verification_result", "execution_completed", "execution_failed", "inspection_failed", "operation_interrupted"]) source.addEventListener(type, refresh);
   }
 
   private setRun(activeRun: RunPresentation): RunPresentation { this.patch({ activeRun, error: null }); return activeRun; }

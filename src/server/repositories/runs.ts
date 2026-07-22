@@ -94,7 +94,7 @@ export class RunRepository {
           ) VALUES (?, ?, ?, NULL, ?, NULL, 0, NULL, NULL, 'inspecting', NULL, NULL, ?, NULL, NULL)`,
         )
         .run(id, projectId, provider, instruction.trim(), createdAt);
-      this.appendEvent(id, "inspection_started", { instruction }, createdAt);
+      this.appendEvent(id, "request_accepted", { operation: "planning" }, createdAt);
     })();
     return this.require(id);
   }
@@ -182,6 +182,18 @@ export class RunRepository {
       this.database.prepare("UPDATE runs SET context_json = ?, status = 'inspecting' WHERE id = ?")
         .run(JSON.stringify(packet), runId);
       this.appendEvent(runId, "context_attached", packet, occurredAt);
+      return this.require(runId);
+    })();
+  }
+
+  beginModification(runId: string, currentRevision: number, modification: string): Run {
+    return this.database.transaction(() => {
+      const run = this.require(runId);
+      if (run.status !== "awaiting_approval" || run.proposal === null) throw new InvalidRunTransitionError(`Run '${runId}' is not awaiting proposal approval.`);
+      if (currentRevision !== run.proposal_revision) throw new StaleProposalRevisionError(`Proposal revision ${currentRevision} is stale; current revision is ${run.proposal_revision}.`);
+      const at = this.clock().toISOString();
+      this.database.prepare("UPDATE runs SET status='inspecting' WHERE id=?").run(runId);
+      this.appendEvent(runId, "revision_requested", { modification }, at);
       return this.require(runId);
     })();
   }
@@ -285,6 +297,32 @@ export class RunRepository {
   }
 
   recordExecutionEvent(runId: string, type: string, payload: unknown, occurredAt = this.clock().toISOString()): void { this.appendEvent(runId, type, payload, occurredAt); }
+
+  markExecutionAccepted(runId: string): Run {
+    const run = this.require(runId);
+    if (!this.events(runId).some((event) => event.type === "execution_accepted")) this.appendEvent(runId, "execution_accepted", { revision: run.approved_proposal_revision }, this.clock().toISOString());
+    return this.require(runId);
+  }
+
+  inspectionFingerprint(projectId: string): string | null {
+    return (this.database.prepare("SELECT fingerprint FROM inspection_cache WHERE project_id=?").get(projectId) as { fingerprint: string } | undefined)?.fingerprint ?? null;
+  }
+
+  saveInspectionFingerprint(projectId: string, fingerprint: string): void {
+    this.database.prepare("INSERT INTO inspection_cache(project_id,fingerprint,updated_at) VALUES(?,?,?) ON CONFLICT(project_id) DO UPDATE SET fingerprint=excluded.fingerprint,updated_at=excluded.updated_at")
+      .run(projectId, fingerprint, this.clock().toISOString());
+  }
+
+  interruptActiveRuns(): number {
+    const rows = this.database.prepare("SELECT id FROM runs WHERE status IN ('inspecting','approved','preparing_execution','executing','verifying')").all() as Array<{ id: string }>;
+    for (const { id } of rows) {
+      const message = "JARVIS restarted before this operation completed. Repository state was preserved; review the working tree before starting another run.";
+      const at = this.clock().toISOString();
+      this.database.prepare("UPDATE runs SET status='failed',result_json=?,completed_at=? WHERE id=?").run(JSON.stringify({ message, category: "interrupted" }), at, id);
+      this.appendEvent(id, "operation_interrupted", { message }, at);
+    }
+    return rows.length;
+  }
 
   recordVerification(runId: string, verification: unknown): Run {
     this.database.prepare("UPDATE runs SET verification_json=? WHERE id=?").run(JSON.stringify(verification), runId);

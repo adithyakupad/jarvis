@@ -3,8 +3,10 @@ import { CodexPlanningAdapter } from "../providers/codex-planning-adapter.js";
 import { ClaudeCodeAdapter } from "../providers/claude-code-adapter.js";
 import { AgentAdapterRegistry } from "../providers/registry.js";
 import { buildApi } from "./app.js";
+import { RunRepository } from "../repositories/runs.js";
 
 const database = openDatabase(process.env.JARVIS_DATABASE_PATH ?? "data/jarvis.db");
+new RunRepository(database).interruptActiveRuns();
 const app = buildApi({ database, adapters: new AgentAdapterRegistry([new CodexPlanningAdapter(), new ClaudeCodeAdapter()]) });
 
 const close = async (): Promise<void> => { await app.close(); database.close(); };

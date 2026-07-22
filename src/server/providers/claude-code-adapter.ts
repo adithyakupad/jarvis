@@ -12,7 +12,7 @@ const claudeResultSchema = z.object({ session_id: z.string().trim().min(1), resu
 const proposalJsonSchema = { type: "object", additionalProperties: false, required: ["objective", "currentState", "steps", "expectedScope", "risks", "completionTest", "validationCommands", "contextStatus", "followUpQuestion"], properties: { objective: { type: "string" }, currentState: { type: "string" }, steps: { type: "array", items: { type: "string" } }, expectedScope: { type: "array", items: { type: "string" } }, risks: { type: "array", items: { type: "string" } }, completionTest: { type: "string" }, validationCommands: { type: "array", items: { type: "string" } }, contextStatus: { type: "string", enum: ["sufficient", "needs_more_context"] }, followUpQuestion: { anyOf: [{ type: "string" }, { type: "null" }] } } } as const;
 
 function executionPrompt(input: ExecutionRequest): string {
-  return ["Execute only the exact approved proposal below in the current repository.", "Do not access paths outside this repository. Do not commit, push, reset, clean, or stash. Do not expand the approved scope.", "Use file editing tools only; JARVIS performs approved validation independently.", `Original instruction: ${input.instruction}`, `Approved revision: ${input.approvedRevision}`, `Allowed scope: ${JSON.stringify(input.allowedScope)}`, `Approved proposal: ${JSON.stringify(input.proposal)}`, input.contextPacket ? `Persisted context: ${JSON.stringify(input.contextPacket)}` : ""].filter(Boolean).join("\n\n");
+  return ["Execute only the exact approved proposal below in the current repository.", "Do not access paths outside this repository. Do not commit, push, reset, clean, or stash. Do not expand the approved scope.", "JARVIS owns the final authoritative full test run. Do not repeat the full repository test command solely as final confirmation; targeted checks needed while implementing are allowed.", `Original instruction: ${input.instruction}`, `Approved revision: ${input.approvedRevision}`, `Allowed scope: ${JSON.stringify(input.allowedScope)}`, `Approved proposal: ${JSON.stringify(input.proposal)}`, input.contextPacket ? `Persisted context: ${JSON.stringify(input.contextPacket)}` : ""].filter(Boolean).join("\n\n");
 }
 
 function parseJsonOutput(stdout: string): z.infer<typeof claudeResultSchema> {
@@ -30,8 +30,10 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   detect(): Promise<ProviderAvailability> { return detectClaudeCode(this.runner); }
 
   async inspect(input: InspectionRequest): Promise<unknown> {
-    const availability = await this.detect();
-    if (!availability.installed || availability.authenticated !== true) throw new ProviderUnavailableError(availability.detail);
+    if (!input.providerReadinessVerified) {
+      const availability = await this.detect();
+      if (!availability.installed || availability.authenticated !== true) throw new ProviderUnavailableError(availability.detail);
+    }
     const args = ["-p", buildPlanningPrompt(input), "--output-format", "json", "--permission-mode", "plan", "--allowedTools", "Read", "Glob", "Grep", "--json-schema", JSON.stringify(proposalJsonSchema)];
     if (input.providerSessionId) args.push("--resume", input.providerSessionId);
     const result = await this.runner.run("claude", args, { cwd: input.repositoryPath, timeoutMs: 120_000 });
@@ -43,8 +45,10 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   }
 
   async execute(input: ExecutionRequest, onEvent: AgentEventHandler): Promise<ExecutionResult> {
-    const availability = await this.detect();
-    if (!availability.installed || availability.authenticated !== true) throw new ProviderUnavailableError(availability.detail);
+    if (!input.providerReadinessVerified) {
+      const availability = await this.detect();
+      if (!availability.installed || availability.authenticated !== true) throw new ProviderUnavailableError(availability.detail);
+    }
     const args = ["-p", executionPrompt(input), "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits", "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep"];
     if (input.providerSessionId) args.push("--resume", input.providerSessionId);
     const result = await this.runner.run("claude", args, { cwd: input.repositoryPath, timeoutMs: 300_000 });

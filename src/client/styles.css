@@ -166,6 +166,10 @@ dd { margin: 0; color: var(--muted); font-size: .72rem; line-height: 1.5; overfl
 .event-timeline strong { font-size: .78rem; }
 .event-timeline p { color: var(--muted); font-size: .7rem; margin: .3rem 0; }
 .event-timeline time { color: var(--dim); font: 400 .56rem IBM Plex Mono, monospace; }
+.live-stages { margin: 1rem 0; padding-left: 1rem; color: var(--muted); }
+.live-stages li { margin: .45rem 0; }
+.live-stages strong { display: block; color: var(--text); font-size: .72rem; text-transform: capitalize; }
+.live-stages span { font-size: .66rem; }
 .run-side { display: grid; gap: 1rem; align-content: start; }
 .run-proposal { margin: 1rem 0; }
 .run-proposal h2 { font-size: 1.25rem; }

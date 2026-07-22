@@ -39,8 +39,10 @@ function fixture(responses: unknown[] = [proposal(1), proposal(2)]) {
   const repositoryPath = join(root, "repo"); mkdirSync(repositoryPath);
   const database = openDatabase(join(root, "jarvis.db")); databases.push(database);
   const adapter = new FakeAdapter(responses);
-  const app = buildApi({ database, adapters: new AgentAdapterRegistry([adapter]), processRunner }); apps.push(app);
-  return { app, adapter, repositoryPath };
+  const tasks: Array<() => Promise<void>> = [];
+  const app = buildApi({ database, adapters: new AgentAdapterRegistry([adapter]), processRunner, schedule: (task) => tasks.push(task) }); apps.push(app);
+  const drain = async (): Promise<void> => { while (tasks.length) await tasks.shift()?.(); };
+  return { app, adapter, repositoryPath, tasks, drain };
 }
 
 async function createProject(context: ReturnType<typeof fixture>): Promise<void> {
@@ -60,10 +62,12 @@ describe("Gate 2.5 HTTP API", () => {
   it("creates a persisted proposal, modifies the same session, and rejects stale approval", async () => {
     const context = fixture(); await createProject(context);
     const created = await context.app.inject({ method: "POST", url: "/api/projects/mk-42/instructions", payload: { instruction: "Inspect validation." } });
-    expect(created.statusCode).toBe(201); expect(created.json().run).toMatchObject({ status: "awaiting_approval", proposal_revision: 1, provider_session_id: "thread-real" });
+    expect(created.statusCode).toBe(202); expect(created.json().run).toMatchObject({ status: "inspecting", proposal_revision: 0, provider_session_id: null });
     const runId = created.json().run.id as string;
+    await context.drain();
     const modified = await context.app.inject({ method: "POST", url: `/api/runs/${runId}/modify`, payload: { currentRevision: 1, modification: "Narrow scope." } });
-    expect(modified.json()).toMatchObject({ run: { id: runId, proposal_revision: 2, provider_session_id: "thread-real" }, revisions: [{ revision: 1 }, { revision: 2 }] });
+    expect(modified.json()).toMatchObject({ run: { id: runId, status: "inspecting", proposal_revision: 1, provider_session_id: "thread-real" }, revisions: [{ revision: 1 }] });
+    await context.drain();
     expect(context.adapter.requests[1]).toMatchObject({ providerSessionId: "thread-real", proposalRevision: 2, readOnly: true });
     expect((await context.app.inject({ method: "POST", url: `/api/runs/${runId}/proceed`, payload: { revision: 1 } })).statusCode).toBe(409);
     const approved = await context.app.inject({ method: "POST", url: `/api/runs/${runId}/proceed`, payload: { revision: 2 } });
@@ -76,6 +80,7 @@ describe("Gate 2.5 HTTP API", () => {
     expect((await context.app.inject({ method: "POST", url: "/api/projects/mk-42/instructions", payload: { instruction: "" } })).statusCode).toBe(400);
     const created = await context.app.inject({ method: "POST", url: "/api/projects/mk-42/instructions", payload: { instruction: "Inspect." } });
     const runId = created.json().run.id as string;
+    await context.drain();
     expect((await context.app.inject({ method: "POST", url: `/api/runs/${runId}/cancel`, payload: {} })).json().run.status).toBe("cancelled");
     expect((await context.app.inject({ method: "POST", url: `/api/runs/${runId}/cancel`, payload: {} })).statusCode).toBe(200);
     expect((await context.app.inject({ method: "POST", url: `/api/runs/${runId}/proceed`, payload: { revision: 1 } })).statusCode).toBe(409);
@@ -85,6 +90,7 @@ describe("Gate 2.5 HTTP API", () => {
     const context = fixture(); await createProject(context);
     const created = await context.app.inject({ method: "POST", url: "/api/projects/mk-42/instructions", payload: { instruction: "Inspect." } });
     const runId = created.json().run.id as string;
+    await context.drain();
     expect((await context.app.inject({ method: "GET", url: `/api/projects/mk-42` })).json().activeRun.run.id).toBe(runId);
     expect((await context.app.inject({ method: "GET", url: `/api/runs/${runId}` })).json().run.proposal.objective).toBe("Understand validation");
   });
@@ -93,11 +99,14 @@ describe("Gate 2.5 HTTP API", () => {
     const context = fixture(); await createProject(context);
     const created = await context.app.inject({ method: "POST", url: "/api/projects/mk-42/instructions", payload: { instruction: "Resolve icing." } });
     const runId = created.json().run.id as string;
+    await context.drain();
     expect((await context.app.inject({ method: "POST", url: `/api/runs/${runId}/context`, payload: { currentRevision: 1 } })).statusCode).toBe(400);
     expect((await context.app.inject({ method: "POST", url: `/api/runs/${runId}/context`, payload: { currentRevision: 1, reproductionSteps: ["   "] } })).statusCode).toBe(400);
     const replanned = await context.app.inject({ method: "POST", url: `/api/runs/${runId}/context`, payload: { currentRevision: 1, problem: "  Shoulder icing. ", evidence: " Temperature trace drops. " } });
     expect(replanned.statusCode).toBe(200);
-    expect(replanned.json()).toMatchObject({ run: { id: runId, provider_session_id: "thread-real", proposal_revision: 2, context_packet: { problem: "Shoulder icing.", evidence: "Temperature trace drops." } }, contextPacket: { problem: "Shoulder icing." }, currentProposal: { revision: 2 }, revisions: [{ revision: 1 }, { revision: 2 }] });
+    expect(replanned.json()).toMatchObject({ run: { id: runId, status: "inspecting", provider_session_id: "thread-real", proposal_revision: 1, context_packet: { problem: "Shoulder icing.", evidence: "Temperature trace drops." } }, contextPacket: { problem: "Shoulder icing." }, currentProposal: { revision: 1 }, revisions: [{ revision: 1 }] });
+    await context.drain();
+    expect((await context.app.inject({ method: "GET", url: `/api/runs/${runId}` })).json()).toMatchObject({ run: { proposal_revision: 2 }, revisions: [{ revision: 1 }, { revision: 2 }] });
     expect(context.adapter.requests[1]).toMatchObject({ instruction: "Resolve icing.", contextPacket: { problem: "Shoulder icing.", evidence: "Temperature trace drops." } });
   });
 
@@ -105,9 +114,11 @@ describe("Gate 2.5 HTTP API", () => {
     const context = fixture(); await createProject(context);
     const created = await context.app.inject({ method: "POST", url: "/api/projects/mk-42/instructions", payload: { instruction: "Resolve icing." } });
     const runId = created.json().run.id as string;
+    await context.drain();
     const replanned = await context.app.inject({ method: "POST", url: `/api/runs/${runId}/context`, payload: { currentRevision: 1, summary: "  My suit starts turning into ice at high altitudes when I fly.  " } });
     expect(replanned.statusCode).toBe(200);
     expect(replanned.json().contextPacket).toEqual({ summary: "My suit starts turning into ice at high altitudes when I fly." });
+    await context.drain();
     expect((await context.app.inject({ method: "POST", url: `/api/runs/${runId}/context`, payload: { currentRevision: 2, summary: "   " } })).statusCode).toBe(400);
   });
 
@@ -116,6 +127,7 @@ describe("Gate 2.5 HTTP API", () => {
     expect((await context.app.inject({ method: "POST", url: "/api/runs/missing/context", payload: { currentRevision: 1, problem: "Icing" } })).statusCode).toBe(404);
     const created = await context.app.inject({ method: "POST", url: "/api/projects/mk-42/instructions", payload: { instruction: "Resolve icing." } });
     const runId = created.json().run.id as string;
+    await context.drain();
     expect((await context.app.inject({ method: "POST", url: `/api/runs/${runId}/context`, payload: { currentRevision: 2, problem: "Icing" } })).statusCode).toBe(409);
     await context.app.inject({ method: "POST", url: `/api/runs/${runId}/cancel`, payload: {} });
     expect((await context.app.inject({ method: "POST", url: `/api/runs/${runId}/context`, payload: { currentRevision: 1, problem: "Icing" } })).statusCode).toBe(409);

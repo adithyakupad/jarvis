@@ -1,155 +1,98 @@
 import { z } from "zod";
 
 import { PlanProposalSchema, type Run } from "../../shared/runs.js";
+import { ContextPacketSchema, type ContextPacket } from "../../shared/context.js";
+import { ProviderUnavailableError } from "../providers/errors.js";
+import { NodeProcessRunner, type ProcessRunner } from "../providers/process-runner.js";
 import { AgentAdapterRegistry } from "../providers/registry.js";
 import { ProjectRepository } from "../repositories/projects.js";
-import { RunRepository } from "../repositories/runs.js";
-import { InvalidRunTransitionError, StaleProposalRevisionError } from "../repositories/runs.js";
+import { InvalidRunTransitionError, RunRepository, StaleProposalRevisionError } from "../repositories/runs.js";
 import { canonicalizeRepositoryPath } from "../security/repository-path.js";
-import { ContextPacketSchema, type ContextPacket } from "../../shared/context.js";
+import { repositoryFingerprint } from "./repository-fingerprint.js";
 
 const instructionSchema = z.string().trim().min(1);
-
 export class ProjectNotFoundError extends Error {}
-
 export class PlanningInspectionError extends Error {
-  constructor(
-    readonly runId: string,
-    cause: unknown,
-  ) {
-    super(cause instanceof Error ? cause.message : "Provider returned a malformed proposal.");
-    this.name = "PlanningInspectionError";
-    this.cause = cause;
-  }
+  constructor(readonly runId: string, cause: unknown) { super(cause instanceof Error ? cause.message : "Provider returned a malformed proposal."); this.name = "PlanningInspectionError"; this.cause = cause; }
 }
 
 export class PlanningService {
-  constructor(
-    private readonly projects: ProjectRepository,
-    private readonly runs: RunRepository,
-    private readonly adapters: AgentAdapterRegistry,
-  ) {}
+  constructor(private readonly projects: ProjectRepository, private readonly runs: RunRepository, private readonly adapters: AgentAdapterRegistry, private readonly runner: ProcessRunner = new NodeProcessRunner()) {}
 
-  async inspect(projectId: string, instructionInput: string): Promise<Run> {
+  acceptInspection(projectId: string, instructionInput: string): Run {
     const instruction = instructionSchema.parse(instructionInput);
     const project = this.projects.get(projectId);
-    if (project === null) throw new ProjectNotFoundError(`Project '${projectId}' was not found.`);
-    const repositoryPath = canonicalizeRepositoryPath(project.repository_path);
-    const adapter = this.adapters.require(project.provider);
-    const run = this.runs.createInspection(project.id, project.provider, instruction);
-
-    try {
-      const proposal = PlanProposalSchema.parse(
-        await adapter.inspect({
-          projectId: project.id,
-          repositoryPath,
-          instruction,
-          readOnly: true,
-          proposalRevision: 1,
-          providerSessionId: null,
-          previousProposal: null,
-          modification: null,
-          contextPacket: null,
-        }),
-      );
-      if (proposal.revision !== 1) {
-        throw new Error(`Initial proposal must be revision 1, received ${proposal.revision}.`);
-      }
-      return this.runs.recordProposal(run.id, proposal);
-    } catch (error) {
-      this.runs.failInspection(run.id, error);
-      throw new PlanningInspectionError(run.id, error);
-    }
+    if (!project) throw new ProjectNotFoundError(`Project '${projectId}' was not found.`);
+    return this.runs.createInspection(project.id, project.provider, instruction);
   }
 
-  async modify(
-    runId: string,
-    currentRevision: number,
-    modificationInput: string,
-  ): Promise<Run> {
-    const modification = instructionSchema.parse(modificationInput);
-    const run = this.runs.require(runId);
-    if (run.status !== "awaiting_approval" || run.proposal === null) {
-      throw new InvalidRunTransitionError(`Run '${runId}' is not awaiting proposal approval.`);
-    }
-    if (currentRevision !== run.proposal_revision) {
-      throw new StaleProposalRevisionError(
-        `Proposal revision ${currentRevision} is stale; current revision is ${run.proposal_revision}.`,
-      );
-    }
-    const project = this.projects.get(run.project_id);
-    if (project === null) throw new ProjectNotFoundError(`Project '${run.project_id}' was not found.`);
-    const repositoryPath = canonicalizeRepositoryPath(project.repository_path);
-    const adapter = this.adapters.require(run.provider);
-    const expectedRevision = run.proposal_revision + 1;
+  async inspect(projectId: string, instructionInput: string): Promise<Run> { return this.performInspection(this.acceptInspection(projectId, instructionInput).id); }
 
-    try {
-      const proposal = PlanProposalSchema.parse(
-        await adapter.inspect({
-          projectId: project.id,
-          repositoryPath,
-          instruction: run.instruction,
-          readOnly: true,
-          proposalRevision: expectedRevision,
-          providerSessionId: run.provider_session_id,
-          previousProposal: run.proposal,
-          modification,
-          contextPacket: run.context_packet,
-        }),
-      );
-      if (proposal.revision !== expectedRevision) {
-        throw new Error(
-          `Modified proposal must be revision ${expectedRevision}, received ${proposal.revision}.`,
-        );
-      }
-      if (proposal.providerSessionId !== run.provider_session_id) {
-        throw new Error("Modified proposal changed the provider session ID.");
-      }
-      return this.runs.recordProposal(run.id, proposal);
-    } catch (error) {
-      this.runs.failInspection(run.id, error);
-      throw new PlanningInspectionError(run.id, error);
-    }
+  async performInspection(runId: string): Promise<Run> {
+    const run = this.runs.require(runId);
+    return this.invoke(run, 1, null, null);
+  }
+
+  acceptModification(runId: string, currentRevision: number, modificationInput: string): Run {
+    return this.runs.beginModification(runId, currentRevision, instructionSchema.parse(modificationInput));
+  }
+
+  async performModification(runId: string, modificationInput: string): Promise<Run> {
+    const run = this.runs.require(runId);
+    return this.invoke(run, run.proposal_revision + 1, instructionSchema.parse(modificationInput), run.context_packet);
+  }
+
+  async modify(runId: string, currentRevision: number, modificationInput: string): Promise<Run> {
+    this.acceptModification(runId, currentRevision, modificationInput);
+    return this.performModification(runId, modificationInput);
+  }
+
+  acceptContext(runId: string, currentRevision: number, packetInput: ContextPacket): Run {
+    return this.runs.recordContext(runId, currentRevision, ContextPacketSchema.parse(packetInput));
+  }
+
+  async performContext(runId: string): Promise<Run> {
+    const run = this.runs.require(runId);
+    if (!run.context_packet) throw new InvalidRunTransitionError(`Run '${runId}' has no persisted context packet.`);
+    return this.invoke(run, run.proposal_revision + 1, null, run.context_packet);
   }
 
   async addContext(runId: string, currentRevision: number, packetInput: ContextPacket): Promise<Run> {
-    const packet = ContextPacketSchema.parse(packetInput);
-    const priorRun = this.runs.require(runId);
-    if (priorRun.status !== "awaiting_approval" || priorRun.proposal === null) {
-      throw new InvalidRunTransitionError(`Run '${runId}' is not awaiting proposal approval.`);
-    }
-    const project = this.projects.get(priorRun.project_id);
-    if (project === null) throw new ProjectNotFoundError(`Project '${priorRun.project_id}' was not found.`);
-    const repositoryPath = canonicalizeRepositoryPath(project.repository_path);
-    const adapter = this.adapters.require(priorRun.provider);
-    const run = this.runs.recordContext(runId, currentRevision, packet);
-    const expectedRevision = run.proposal_revision + 1;
+    this.acceptContext(runId, currentRevision, packetInput);
+    return this.performContext(runId);
+  }
+
+  proceed(runId: string, revision: number): Run { return this.runs.markExecutionAccepted(this.runs.approve(runId, revision).id); }
+  cancel(runId: string): Run { return this.runs.cancel(runId); }
+
+  private async invoke(run: Run, revision: number, modification: string | null, contextPacket: ContextPacket | null): Promise<Run> {
     try {
-      const proposal = PlanProposalSchema.parse(await adapter.inspect({
-        projectId: project.id,
-        repositoryPath,
-        instruction: run.instruction,
-        readOnly: true,
-        proposalRevision: expectedRevision,
-        providerSessionId: run.provider_session_id,
-        previousProposal: run.proposal,
-        modification: null,
-        contextPacket: packet,
-      }));
-      if (proposal.revision !== expectedRevision) throw new Error(`Context replanning must create revision ${expectedRevision}, received ${proposal.revision}.`);
-      if (proposal.providerSessionId !== run.provider_session_id) throw new Error("Context replanning changed the provider session ID.");
-      return this.runs.recordProposal(run.id, proposal);
+      this.runs.recordExecutionEvent(run.id, "loading_project_state", {});
+      const project = this.projects.get(run.project_id);
+      if (!project) throw new ProjectNotFoundError(`Project '${run.project_id}' was not found.`);
+      if (project.provider !== run.provider) throw new InvalidRunTransitionError("The run provider no longer matches its project.");
+      const repositoryPath = canonicalizeRepositoryPath(project.repository_path);
+      const adapter = this.adapters.require(run.provider);
+      this.runs.recordExecutionEvent(run.id, "checking_provider", { provider: run.provider });
+      const [availability, fingerprint] = await Promise.all([adapter.detect(), repositoryFingerprint(repositoryPath, this.runner)]);
+      if (!availability.installed || availability.authenticated !== true) throw new ProviderUnavailableError(availability.detail);
+      this.runs.recordExecutionEvent(run.id, "provider_ready", { provider: run.provider });
+      const priorFingerprint = this.runs.inspectionFingerprint(project.id);
+      const cacheHit = fingerprint !== null && fingerprint === priorFingerprint && revision > 1;
+      this.runs.recordExecutionEvent(run.id, cacheHit ? "inspection_cache_hit" : "inspection_cache_miss", { reusable: cacheHit });
+      this.runs.recordExecutionEvent(run.id, "repository_inspection_started", {});
+      this.runs.recordExecutionEvent(run.id, "provider_invocation_started", { operation: "planning" });
+      const proposal = PlanProposalSchema.parse(await adapter.inspect({ projectId: project.id, repositoryPath, instruction: run.instruction, readOnly: true, proposalRevision: revision, providerSessionId: run.provider_session_id, previousProposal: run.proposal, modification, contextPacket, repositoryCacheHit: cacheHit, providerReadinessVerified: true }));
+      this.runs.recordExecutionEvent(run.id, "repository_inspection_completed", { cacheHit });
+      if (proposal.revision !== revision) throw new Error(`Proposal must be revision ${revision}, received ${proposal.revision}.`);
+      if (revision > 1 && proposal.providerSessionId !== run.provider_session_id) throw new Error("Replanning changed the provider session ID.");
+      const completed = this.runs.recordProposal(run.id, proposal);
+      if (fingerprint) this.runs.saveInspectionFingerprint(project.id, fingerprint);
+      this.runs.recordExecutionEvent(run.id, "proposal_ready", { revision });
+      return completed;
     } catch (error) {
       this.runs.failInspection(run.id, error);
       throw new PlanningInspectionError(run.id, error);
     }
-  }
-
-  proceed(runId: string, revision: number): Run {
-    return this.runs.approve(runId, revision);
-  }
-
-  cancel(runId: string): Run {
-    return this.runs.cancel(runId);
   }
 }

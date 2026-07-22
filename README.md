@@ -33,7 +33,8 @@ Gates 1, 2, 2.5, 2.6, 2.7, and 3 provide:
 - Explicit browser hydration that restores the selected project, run, proposal revisions, and Context Packet before the workspace becomes interactive.
 - Persistent user-supplied Context Packets and same-session context-aware replanning.
 - First-run provider readiness, local repository validation, read-only project profiling, and persisted project settings.
-- Exact-revision Codex and Claude Code execution, pre/post repository snapshots, normalized event streaming, optional approved-command verification, and project reconciliation.
+- Exact-revision Codex and Claude Code execution, pre/post repository snapshots, normalized event streaming, independent package-test validation, and project reconciliation.
+- Prompt HTTP acknowledgement, persisted live progress, local timing diagnostics, provider-session continuity, and conservative repository-inspection reuse.
 
 The automated suite uses deterministic fake adapters. In real mode, Proceed seals the current proposal revision and executes it through the selected local provider. There is no cross-provider or mock fallback.
 
@@ -111,9 +112,15 @@ Real mode detects local providers, loads projects from SQLite, and asks the sele
 
 Before execution JARVIS persists branch, HEAD, Git status, dirty-file fingerprints, and the canonical path. After execution it captures the same evidence, labels newly dirty files as execution-window changes, and labels changed pre-existing dirty files as ambiguous. It never resets, cleans, stashes, commits, pushes, or discards work. A changed HEAD is treated as an execution failure.
 
-Only validation commands embedded in the approved proposal may run. They are restricted to known validation executables, run without a shell, have timeouts, and persist exit status, duration, and truncated output. If no approved command exists, JARVIS reports that automated validation was unavailable. Provider completion text alone is not treated as verification.
+After edits, JARVIS independently detects a supported `package.json` test script and invokes the selected package manager without a shell. The command is derived entirely from server-inspected repository state, has a timeout, and persists exit status, duration, and bounded output. Provider completion text alone is not treated as verification.
 
 Execution events are written to SQLite before display. The SSE endpoint streams live normalized activity, while ordinary run and event GET routes restore the durable history after refresh. Failures retain snapshots, prior events, partial changes, and verification evidence for recovery.
+
+Planning and Proceed requests return an HTTP `202` after JARVIS persists the accepted transition. The provider operation continues asynchronously in the local server process, and the existing SSE stream updates the workspace from real persisted stages. The UI shows elapsed time from server timestamps without invented percentages. Typical latency depends on repository size and the selected provider; JARVIS does not promise a fixed response time.
+
+Planning revisions and context replans reuse the persisted provider session only for the same project and provider. A small inspection fingerprint combines the canonical path, Git HEAD, porcelain status, and the contents of visible dirty or untracked files. An unchanged fingerprint permits prior inspection findings to be reused; HEAD changes, dirty-content changes, and untracked changes invalidate it. Non-Git repositories conservatively skip reuse. Fresh pre/post execution evidence and post-edit validation detection are never cached.
+
+Timing diagnostics are derived from persisted local events and are never sent to an external telemetry service. If JARVIS restarts while in-process planning, queued execution, provider execution, or validation is active, the run is marked interrupted. It is never automatically rerun; repository evidence and working-tree changes remain available for review.
 
 Client initialization is explicit and idempotent: constructors do not launch network work, React starts one tracked initialization, and the UI remains in a hydration state until the selected project and its persisted run have been applied. Refreshing a project workspace therefore cannot treat `activeRun: null` as ready state before restoration finishes.
 
@@ -140,6 +147,8 @@ Create two temporary Git repositories with tiny implementation files and initial
 ## Independent validation
 
 After a provider finishes editing a JavaScript or TypeScript repository, JARVIS automatically runs a real, non-placeholder `test` script from `package.json`. It selects npm, pnpm, Yarn, or Bun from the repository lockfile and runs the tests locally inside the selected repository. Unsupported repository types and projects without a supported test script report that automated validation was not run.
+
+Independent JARVIS validation remains authoritative. Providers are asked not to repeat the same full suite solely as final confirmation, although they may run targeted checks needed while implementing. Provider-reported checks remain activity evidence and never replace the single independent validation run.
 
 Test scripts are repository code and may perform arbitrary project behavior. Onboard only repositories you trust. JARVIS does not automatically commit or push provider edits or validation results.
 

@@ -35,20 +35,30 @@ export class ExecutionService {
     if (initial.status !== "approved" || !initial.proposal || initial.approved_proposal_revision !== initial.proposal_revision) throw new InvalidRunTransitionError(`Run '${runId}' does not have an executable current approval.`);
     const project = this.projects.get(initial.project_id);
     if (!project) throw new InvalidRunTransitionError(`Run '${runId}' belongs to a missing project.`);
+    if (project.provider !== initial.provider) throw new InvalidRunTransitionError("The run provider no longer matches its project.");
     let canonical: string;
     try { canonical = canonicalizeRepositoryPath(project.repository_path); } catch (error) { throw new RepositoryIdentityError(error instanceof Error ? error.message : "Repository is unavailable."); }
     if (canonical !== project.repository_path) throw new RepositoryIdentityError("The repository no longer resolves to the stored canonical path.");
-    const pre = await this.snapshot(canonical);
-    this.runs.prepareExecution(runId, pre);
     this.active.add(runId);
     let lastVerification: Verification | undefined;
     try {
-      this.runs.setExecutionState(runId, "executing");
+      this.runs.recordExecutionEvent(runId, "capturing_repository_baseline", {});
       const adapter = this.adapters.require(initial.provider);
-      const providerResult = await adapter.execute({ projectId: project.id, repositoryPath: canonical, instruction: initial.instruction, proposal: initial.proposal, providerSessionId: initial.provider_session_id, approvedRevision: initial.approved_proposal_revision, contextPacket: initial.context_packet, projectProfile: project.profile, allowedScope: initial.proposal.expectedScope }, (event) => this.runs.recordExecutionEvent(runId, event.type, { message: event.message, ...event.data }, event.occurredAt));
+      const [pre, availability] = await Promise.all([this.snapshot(canonical), adapter.detect()]);
+      if (!availability.installed || availability.authenticated !== true) throw new ProviderUnavailableError(availability.detail);
+      this.runs.prepareExecution(runId, pre);
+      this.runs.recordExecutionEvent(runId, "repository_baseline_completed", { head: pre.head });
+      this.runs.setExecutionState(runId, "executing");
+      this.runs.recordExecutionEvent(runId, "provider_execution_started", { provider: initial.provider });
+      let firstProviderEvent = true;
+      const providerResult = await adapter.execute({ projectId: project.id, repositoryPath: canonical, instruction: initial.instruction, proposal: initial.proposal, providerSessionId: initial.provider_session_id, approvedRevision: initial.approved_proposal_revision, contextPacket: initial.context_packet, projectProfile: project.profile, allowedScope: initial.proposal.expectedScope, providerReadinessVerified: true }, (event) => {
+        if (firstProviderEvent) { firstProviderEvent = false; this.runs.recordExecutionEvent(runId, "first_provider_event", { provider: initial.provider }, event.occurredAt); }
+        this.runs.recordExecutionEvent(runId, event.type, { message: event.message, ...event.data }, event.occurredAt);
+      });
       if (!providerResult.succeeded) throw new ExecutionFailedError(providerResult.summary || "The provider did not report successful completion.");
+      this.runs.recordExecutionEvent(runId, "provider_execution_completed", { provider: initial.provider });
       this.runs.setExecutionState(runId, "verifying");
-      this.runs.recordExecutionEvent(runId, "verification_started", {});
+      this.runs.recordExecutionEvent(runId, "collecting_repository_changes", {});
       const post = await this.snapshot(canonical);
       if (pre.head !== post.head) throw new ExecutionFailedError("Repository HEAD changed during execution; Gate 3 does not authorize commits.");
       const attribution = this.attribute(pre, post);
@@ -56,7 +66,16 @@ export class ExecutionService {
       const outsideScope = attribution.changedFiles.filter((file) => !allowedPaths.some((normalized) => file === normalized || file.startsWith(normalized.endsWith("/") ? normalized : `${normalized}/`)));
       if (outsideScope.length) throw new ExecutionFailedError(`Execution changed files outside the approved scope: ${outsideScope.join(", ")}`);
       const verificationBase = { repositoryValid: true, checks: [] };
-      const validation = await this.validation.validate(canonical, (state) => this.runs.recordVerification(runId, { ...verificationBase, message: validationMessage(state.status), validation: state }));
+      this.runs.recordExecutionEvent(runId, "repository_reconciliation_completed", { changedPaths: attribution.changedFiles.length });
+      let lastValidationStatus: string | null = null;
+      const validation = await this.validation.validate(canonical, (state) => {
+        this.runs.recordVerification(runId, { ...verificationBase, message: validationMessage(state.status), validation: state });
+        if (state.status !== lastValidationStatus) {
+          lastValidationStatus = state.status;
+          const type = state.status === "pending" ? "validation_detected" : state.status === "running" ? "validation_started" : "validation_completed";
+          this.runs.recordExecutionEvent(runId, type, { status: state.status, command: state.commandDisplay });
+        }
+      });
       const verification: Verification = { ...verificationBase, message: validationMessage(validation.status), validation };
       lastVerification = verification;
       this.runs.recordExecutionEvent(runId, "verification_result", verification);

@@ -74,7 +74,7 @@ describe("Gate 3 execution lifecycle", () => {
     expect(context.runner.validationCalls).toEqual(["npm test"]);
     await context.execution.execute(context.runId);
     expect(context.adapter.executeCalls).toBe(1);
-    expect(context.runs.events(context.runId).map((event) => event.type)).toEqual(expect.arrayContaining(["execution_started", "provider_message", "verification_started", "verification_result", "execution_completed"]));
+    expect(context.runs.events(context.runId).map((event) => event.type)).toEqual(expect.arrayContaining(["execution_started", "provider_message", "validation_started", "verification_result", "execution_completed"]));
     context.database.close();
     const restarted = openDatabase(context.databasePath); databases.push(restarted); const restoredRuns = new RunRepository(restarted);
     expect(restoredRuns.require(context.runId)).toMatchObject({ status: "completed", execution_result: { changedFiles: ["src/math.ts"] }, verification: { validation: { status: "passed", exitCode: 0, stdout: "passed" } } });
@@ -96,6 +96,12 @@ describe("Gate 3 execution lifecycle", () => {
     expect(context.adapter.request).toMatchObject({ projectId: "project" });
     expect(context.runs.require(context.runId).provider).toBe("claude-code");
     expect(context.runner.validationCalls).toEqual(["npm test"]);
+  });
+
+  it("never resumes a persisted session after the project provider changes", async () => {
+    const context = fixture(); context.runs.approve(context.runId, 1); context.projects.update("project", { provider: "claude-code" });
+    await expect(context.execution.execute(context.runId)).rejects.toThrow("provider no longer matches");
+    expect(context.adapter.executeCalls).toBe(0);
   });
 
   it("persists snapshots and failure events when the provider fails", async () => {
@@ -120,9 +126,11 @@ describe("Gate 3 execution lifecycle", () => {
 
   it("serves persisted events, SSE, and rejects browser-supplied execution controls", async () => {
     const context = fixture(); context.runs.approve(context.runId, 1);
-    const app = buildApi({ database: context.database, adapters: context.registry, processRunner: context.runner }); apps.push(app);
+    const tasks: Array<() => Promise<void>> = [];
+    const app = buildApi({ database: context.database, adapters: context.registry, processRunner: context.runner, schedule: (task) => tasks.push(task) }); apps.push(app);
     expect((await app.inject({ method: "POST", url: `/api/runs/${context.runId}/execute`, payload: { repositoryPath: "/tmp/other", command: "rm -rf" } })).statusCode).toBe(400);
-    expect((await app.inject({ method: "POST", url: `/api/runs/${context.runId}/execute`, payload: {} })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: `/api/runs/${context.runId}/execute`, payload: {} })).statusCode).toBe(202);
+    await tasks.shift()?.();
     const events = await app.inject({ method: "GET", url: `/api/runs/${context.runId}/events` }); expect(events.json().events.length).toBeGreaterThan(3);
     const stream = await app.inject({ method: "GET", url: `/api/runs/${context.runId}/events/stream?replayOnly=true` }); expect(stream.headers["content-type"]).toContain("text/event-stream"); expect(stream.body).toContain("event: execution_completed");
   });

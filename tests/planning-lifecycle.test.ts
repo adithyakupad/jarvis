@@ -150,6 +150,7 @@ describe("Gate 2 planning lifecycle", () => {
         repositoryPath: context.repositoryPath,
         readOnly: true,
         proposalRevision: 1,
+        providerSessionId: null,
       }),
     ]);
     expect(context.adapter.executeCalls).toBe(0);

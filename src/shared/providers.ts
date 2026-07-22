@@ -25,6 +25,8 @@ export interface InspectionRequest {
   previousProposal: PlanProposal | null;
   modification: string | null;
   contextPacket: ContextPacket | null;
+  repositoryCacheHit?: boolean;
+  providerReadinessVerified?: true;
 }
 
 export interface ExecutionRequest {
@@ -37,6 +39,7 @@ export interface ExecutionRequest {
   contextPacket: ContextPacket | null;
   projectProfile: ProjectProfile | null;
   allowedScope: string[];
+  providerReadinessVerified?: true;
 }
 
 export interface ExecutionResult {

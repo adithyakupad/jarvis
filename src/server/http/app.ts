@@ -36,17 +36,18 @@ export interface ApiDependencies {
   database: JarvisDatabase;
   adapters: AgentAdapterRegistry;
   processRunner?: ProcessRunner;
+  schedule?: (task: () => Promise<void>) => void;
 }
 
 function runResponse(runs: RunRepository, runId: string): { run: Run; revisions: PlanProposal[]; events: ReturnType<RunRepository["events"]> } {
   return { run: runs.require(runId), revisions: runs.proposalRevisions(runId), events: runs.events(runId) };
 }
 
-export function buildApi({ database, adapters, processRunner = new NodeProcessRunner() }: ApiDependencies): FastifyInstance {
+export function buildApi({ database, adapters, processRunner = new NodeProcessRunner(), schedule = (task) => { setImmediate(() => void task().catch(() => undefined)); } }: ApiDependencies): FastifyInstance {
   const app = Fastify({ logger: false });
   const projects = new ProjectRepository(database);
   const runs = new RunRepository(database);
-  const planning = new PlanningService(projects, runs, adapters);
+  const planning = new PlanningService(projects, runs, adapters, processRunner);
   const execution = new ExecutionService(projects, runs, adapters, processRunner);
 
   app.get("/api/setup", async () => ({ providers: await detectProviders(processRunner), projectCount: projects.list().length }));
@@ -100,18 +101,9 @@ export function buildApi({ database, adapters, processRunner = new NodeProcessRu
   app.post("/api/projects/:projectId/instructions", async (request, reply) => {
     const { projectId } = idParams.parse(request.params);
     const { instruction } = instructionBody.parse(request.body);
-    try {
-      const run = await planning.inspect(projectId, instruction);
-      return reply.code(201).send(runResponse(runs, run.id));
-    } catch (error) {
-      if (error instanceof PlanningInspectionError) {
-        const unavailable = error.cause instanceof ProviderUnavailableError;
-        return reply.code(unavailable ? 503 : 502).send({
-          error: { code: unavailable ? "provider_unavailable" : "provider_failure", message: error.message, runId: error.runId },
-        });
-      }
-      throw error;
-    }
+    const run = planning.acceptInspection(projectId, instruction);
+    schedule(() => planning.performInspection(run.id).then(() => undefined));
+    return reply.code(202).send(runResponse(runs, run.id));
   });
   app.get("/api/runs/:runId", async (request) => {
     const { runId } = runParams.parse(request.params);
@@ -120,20 +112,23 @@ export function buildApi({ database, adapters, processRunner = new NodeProcessRu
   app.post("/api/runs/:runId/modify", async (request) => {
     const { runId } = runParams.parse(request.params);
     const input = modifyBody.parse(request.body);
-    await planning.modify(runId, input.currentRevision, input.modification);
+    planning.acceptModification(runId, input.currentRevision, input.modification);
+    schedule(() => planning.performModification(runId, input.modification).then(() => undefined));
     return runResponse(runs, runId);
   });
-  app.post("/api/runs/:runId/proceed", async (request) => {
+  app.post("/api/runs/:runId/proceed", async (request, reply) => {
     const { runId } = runParams.parse(request.params);
     const { revision } = proceedBody.parse(request.body);
     planning.proceed(runId, revision);
-    return runResponse(runs, runId);
+    schedule(() => execution.execute(runId).then(() => undefined));
+    return reply.code(202).send(runResponse(runs, runId));
   });
-  app.post("/api/runs/:runId/execute", async (request) => {
+  app.post("/api/runs/:runId/execute", async (request, reply) => {
     const { runId } = runParams.parse(request.params);
     z.object({}).strict().parse(request.body ?? {});
-    await execution.execute(runId);
-    return runResponse(runs, runId);
+    runs.markExecutionAccepted(runId);
+    schedule(() => execution.execute(runId).then(() => undefined));
+    return reply.code(202).send(runResponse(runs, runId));
   });
   app.get("/api/runs/:runId/events", async (request) => {
     const { runId } = runParams.parse(request.params);
@@ -157,7 +152,8 @@ export function buildApi({ database, adapters, processRunner = new NodeProcessRu
   app.post("/api/runs/:runId/context", async (request) => {
     const { runId } = runParams.parse(request.params);
     const { currentRevision, ...packet } = contextBody.parse(request.body);
-    await planning.addContext(runId, currentRevision, ContextPacketSchema.parse(packet));
+    planning.acceptContext(runId, currentRevision, ContextPacketSchema.parse(packet));
+    schedule(() => planning.performContext(runId).then(() => undefined));
     const response = runResponse(runs, runId);
     return { ...response, contextPacket: response.run.context_packet, currentProposal: response.run.proposal };
   });

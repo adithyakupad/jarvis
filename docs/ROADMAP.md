@@ -32,6 +32,14 @@
 - [x] Project reconciliation and append-only log
 - [x] Run tests and commit the gate
 
+## Gate 3.1 — Latency and continuity
+
+- [x] Persisted asynchronous planning and execution acknowledgement
+- [x] SSE-backed live progress and local timing diagnostics
+- [x] Same-project/provider session continuity
+- [x] Conservative Git fingerprint inspection reuse
+- [x] Restart interruption recovery without automatic reruns
+
 ## Gate 2.5 — Real planning interface integration
 
 - [x] Loopback Fastify API over Gate 2 services

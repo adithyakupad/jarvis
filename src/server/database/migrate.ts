@@ -98,6 +98,12 @@ export function migrate(database: JarvisDatabase): void {
         value_json TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS inspection_cache (
+        project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        fingerprint TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
     `);
 
     const runColumns = tableColumns(database, "runs");
@@ -129,5 +135,6 @@ export function migrate(database: JarvisDatabase): void {
       .prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)")
       .run(4, new Date().toISOString());
     database.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(5, new Date().toISOString());
+    database.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(6, new Date().toISOString());
   })();
 }
