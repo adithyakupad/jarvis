@@ -17,6 +17,9 @@ build/
 *.sqlite
 *.sqlite3
 data/
+jarvis.instance.lock
+jarvis.instance.lock.malformed-*
+*.log
 
 # Editors and OS
 .DS_Store

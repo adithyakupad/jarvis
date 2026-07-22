@@ -1,4 +1,6 @@
 import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { z } from "zod";
 
 import { openDatabase } from "./database/connection.js";
 import { buildApi } from "./http/app.js";
@@ -26,7 +28,8 @@ export async function startAlpha(options: AlphaOptions = {}): Promise<AlphaRunti
   const root = resolve(options.rootDirectory ?? process.cwd());
   const dataDirectory = resolve(options.dataDirectory ?? process.env.JARVIS_DATA_DIR ?? resolve(root, "data"));
   const port = options.port ?? Number(process.env.JARVIS_PORT ?? 4173);
-  const appVersion = options.appVersion ?? process.env.JARVIS_APP_VERSION ?? "0.1.0";
+  const packageVersion = z.object({ version: z.string().min(1) }).parse(JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"))).version;
+  const appVersion = options.appVersion ?? process.env.JARVIS_APP_VERSION ?? packageVersion;
   const buildId = options.buildId ?? process.env.JARVIS_BUILD_ID ?? DEVELOPMENT_BUILD_ID;
   const instance = options.acquiredInstance ?? await acquireInstance(dataDirectory, { port, appVersion, apiSchemaVersion: API_SCHEMA_VERSION, buildId }, options.integrityDependencies);
   if (!instance.owned) { process.stdout.write(`JARVIS is already running at ${instance.existingUrl}.\n`); return null; }

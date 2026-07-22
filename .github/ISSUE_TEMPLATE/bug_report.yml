@@ -1,0 +1,52 @@
+name: Bug report
+description: Report a reproducible JARVIS alpha problem without sharing secrets or private source.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Do not include credentials, tokens, private source code, or an entire JARVIS database. Sanitize logs before attaching them."
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Node version, and JARVIS version or commit.
+      placeholder: "macOS 15; Node 22.12.0; commit abc1234"
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: Provider
+      description: Selected provider, its version, and whether JARVIS reported it ready.
+      placeholder: "Codex 0.x; Ready"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Include the startup command, visible error category, and smallest repeatable sequence.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Sanitized startup output and logs
+      description: Remove usernames, local paths, source content, tokens, and other secrets.
+      render: shell
+  - type: dropdown
+    id: clean
+    attributes:
+      label: Was the target repository clean before execution?
+      options:
+        - "Yes"
+        - "No"
+        - "Not sure"
+    validations:
+      required: true
+  - type: textarea
+    id: changes
+    attributes:
+      label: Repository outcome
+      description: State whether files may have changed and summarize sanitized `git status` output.

@@ -19,6 +19,8 @@ import { ContextPacketFieldsSchema, ContextPacketSchema } from "../../shared/con
 import type { PlanProposal, Run } from "../../shared/runs.js";
 import { API_SCHEMA_VERSION, DEVELOPMENT_BUILD_ID, HealthResponseSchema, type HealthResponse } from "../../shared/runtime.js";
 
+const packageVersion = z.object({ version: z.string().min(1) }).parse(JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8"))).version;
+
 const idParams = z.object({ projectId: z.string().trim().min(1) });
 const runParams = z.object({ runId: z.string().trim().min(1) });
 const createProjectBody = z.object({
@@ -52,7 +54,7 @@ export function buildApi({ database, adapters, processRunner = new NodeProcessRu
   const runs = new RunRepository(database);
   const planning = new PlanningService(projects, runs, adapters, processRunner);
   const execution = new ExecutionService(projects, runs, adapters, processRunner);
-  const health = HealthResponseSchema.parse({ status: "ready", appVersion: "0.1.0", apiSchemaVersion: API_SCHEMA_VERSION, buildId: DEVELOPMENT_BUILD_ID, processId: process.pid, startedAt: new Date().toISOString(), bindHost: "127.0.0.1", port: 3000, ...runtime });
+  const health = HealthResponseSchema.parse({ status: "ready", appVersion: packageVersion, apiSchemaVersion: API_SCHEMA_VERSION, buildId: DEVELOPMENT_BUILD_ID, processId: process.pid, startedAt: new Date().toISOString(), bindHost: "127.0.0.1", port: 3000, ...runtime });
 
   app.get("/api/health", async () => health);
   if (publicDirectory) {

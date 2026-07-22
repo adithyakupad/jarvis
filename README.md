@@ -1,103 +1,262 @@
 # JARVIS
 
-JARVIS is an open-source, local execution interface for Codex and Claude Code.
+JARVIS is an open-source local control layer that gives Codex and other coding agents persistent projects, approval boundaries, execution tracking, and independent verification.
 
-The goal is simple:
+> **Public alpha:** JARVIS is developer-oriented pre-release software. Codex is implemented and live-tested. Claude Code support is implemented but has not yet been live-tested for this release.
+
+[Start in five minutes](#five-minute-quick-start) · [Read the safety model](#safety-model) · [Troubleshoot](#troubleshooting)
+
+Release version: `0.1.0-alpha.1` · intended tag: `v0.1.0-alpha.1`
+
+Public repository: [https://github.com/adithyakupad/jarvis](https://github.com/adithyakupad/jarvis)
+
+## What JARVIS does today
 
 ```text
-Create a project
-→ give JARVIS a high-level instruction
-→ review the proposed plan
-→ approve, revise, or cancel it
-→ let the selected coding agent work
-→ verify the result
-→ remember what happened
+Task → inspect → propose → approve → edit → verify → remember
 ```
 
-## Current status
+- **Task:** You describe a coding outcome in a persistent project workspace.
+- **Inspect:** The selected provider reads the repository to ground its plan; planning does not edit files.
+- **Propose:** JARVIS shows the steps, expected file scope, risks, and completion evidence.
+- **Approve:** You may Proceed with the exact current revision, Revise plan, or Cancel.
+- **Edit:** Only after approval, the selected provider works inside the chosen repository.
+- **Verify:** JARVIS observes repository changes and independently runs a supported project test command.
+- **Remember:** Project state, proposal revisions, activity, changed paths, and validation evidence persist across restarts.
 
-JARVIS v0.1 is being built in sequential, tested gates.
+JARVIS owns project continuity, approval and execution state, repository evidence, validation, and chronological activity. Codex and Claude Code are replaceable planning and execution providers; they are not the source of JARVIS project truth.
 
-Gates 1, 2, 2.5, 2.6, 2.7, and 3 provide:
+## Who this alpha is for
 
-- A TypeScript runtime.
-- SQLite project persistence and migrations.
-- Project creation and retrieval.
-- Codex and Claude Code installation detection.
-- A shared provider contract.
-- Read-only inspection runs and Zod-validated structured proposals.
-- Persisted proposal revisions and provider session IDs.
-- Proceed, Revise plan, and Cancel transitions sealed to exact revisions.
-- A loopback-only Fastify API and SQLite-backed React interface.
-- Authenticated Codex SDK planning in a read-only repository sandbox.
-- Explicit browser hydration that restores the selected project, run, proposal revisions, and Context Packet before the workspace becomes interactive.
-- Persistent user-supplied Context Packets and same-session context-aware replanning.
-- First-run provider readiness, local repository validation, read-only project profiling, and persisted project settings.
-- Exact-revision Codex and Claude Code execution, pre/post repository snapshots, normalized event streaming, independent package-test validation, and project reconciliation.
-- Prompt HTTP acknowledgement, persisted live progress, local timing diagnostics, provider-session continuity, and conservative repository-inspection reuse.
+This alpha is appropriate for developers and technical builders who:
 
-The automated suite uses deterministic fake adapters. In real mode, Proceed seals the current proposal revision and executes it through the selected local provider. There is no cross-provider or mock fallback.
+- are comfortable with Git and a terminal;
+- already use Codex or are willing to install and authenticate it;
+- can review an agent's uncommitted changes; and
+- will begin with a disposable or otherwise safe local repository.
 
-## Provider status
+It is not yet a desktop consumer application, fully autonomous personal assistant, cloud service, or replacement for reviewing code changes.
 
-- Codex: implemented and live-tested
-- Claude Code: implemented, but not yet live-tested in the current alpha environment
+## Current provider status
 
-JARVIS never silently switches providers. If the selected provider is unavailable,
-the run fails explicitly rather than falling back to another provider.
+| Provider | Planning and execution | Release verification | Unavailable behavior |
+| --- | --- | --- | --- |
+| Codex | Implemented | Live-tested | Explicit failure; no fallback |
+| Claude Code | Adapter implemented | Not yet live-tested for this release | Explicit failure; no fallback |
 
-The earlier Python implementation remains available until the TypeScript version reaches verified parity.
-
-## First run
-
-A fresh production database contains no sample projects. Open Setup, choose **Add an existing project**, paste an absolute repository path, describe what you are building, and select an installed provider. JARVIS canonicalizes and validates the path on the local server, performs a concise read-only inspection of known project files, saves the project, and opens its workspace. The repository does not need to be clean.
-
-The browser cannot reliably provide a local server with an absolute folder path, so the developer alpha uses pasted paths. Native directory selection is planned for a future desktop wrapper.
+JARVIS never silently changes the selected provider.
 
 ## Requirements
 
-- Node.js 22.12 or newer
-- npm
-- Codex CLI installed and authenticated with `codex login`, and/or Claude Code installed and authenticated with `claude auth login`
+- macOS. Other operating systems may work, but they have not been release-verified.
+- Git.
+- Node.js 22.12 or newer and npm.
+- Codex CLI installed and authenticated when using Codex.
+- Claude Code installed and authenticated only when selecting Claude Code.
+- An existing local Git repository that you trust and are willing to let an agent edit after approval.
 
-Python 3.12 is needed only for the temporary legacy implementation during migration.
-
-## Install and start the local alpha
-
-Install dependencies and compile TypeScript:
+Verify the tools you intend to use:
 
 ```bash
+node --version
+npm --version
+git --version
+codex --version
+```
+
+Authenticate Codex with `codex login`. If selecting Claude Code, verify `claude --version` and follow the authentication flow supported by your installed Claude Code release.
+
+## Five-minute quick start
+
+```bash
+git clone https://github.com/adithyakupad/jarvis.git
+cd jarvis
 npm install
 npm run jarvis
 ```
 
-Open the single URL printed by JARVIS (normally `http://127.0.0.1:4173`). The command builds the production React application and serves it with `/api/*` from one Fastify process and one loopback origin; it does not rely on the Vite development proxy. State is stored in `data/jarvis.db` by default. To isolate it:
+Keep the terminal open. JARVIS builds the production client, starts one Fastify process, and prints one authoritative localhost URL (normally `http://127.0.0.1:4173`). The frontend and API share that origin, and the server binds only to `127.0.0.1`; production startup does not depend on the Vite development proxy. Press `Ctrl+C` in this terminal to stop the owned instance cleanly.
 
-```bash
-JARVIS_DATA_DIR=/absolute/path/to/isolated-state npm run jarvis
+## Add the first project
+
+On first launch, JARVIS opens **Add an existing project**:
+
+- **Project name:** A user-facing label shown in JARVIS, such as `Calculator` or `My App`.
+- **Repository path:** The absolute path to an existing local Git repository. On macOS or Linux, enter the repository in a terminal and run `pwd` to obtain it—for example, `/Users/you/Projects/calculator` or `/home/you/projects/calculator`.
+- **What are you building?:** A stable one- or two-sentence identity, such as `A TypeScript calculator library with automated tests.` This is not today's task.
+- **Provider:** The coding agent JARVIS should use. Only a provider reported as ready can be selected.
+- **Project context (optional):** Durable conventions, constraints, architecture, or goals, such as `Use TypeScript strict mode.` or `Do not modify generated files.`
+
+**Do not put the immediate coding task in Project context. Submit the task after the workspace opens.**
+
+> **Do not use the JARVIS source repository as your first execution target.** Start with a disposable repository or a repository whose changes you can review and recover through your normal Git workflow.
+
+The repository does not need to be clean, but existing changes make attribution harder. Prefer a clean working tree for the first run.
+
+## Run the first task
+
+After **Open workspace**, enter the immediate task in **Task instruction**. A safe first example is:
+
+```text
+Add a multiply function that returns the product of two numbers and add an automated test. Follow existing conventions. Do not commit or push.
 ```
 
-The launcher creates `jarvis.instance.lock` inside the resolved data directory. A second invocation with the same compatible running instance prints its existing URL and exits successfully instead of starting duplicate servers. Dead locks are removed, malformed locks are preserved with a diagnostic suffix, and orderly Ctrl+C or SIGTERM shutdown removes only the lock owned by that process. JARVIS never kills a conflicting process automatically.
+JARVIS asks the selected provider to inspect first. No edit occurs during planning. Review the proposal's steps, expected scope, risks, and completion evidence:
 
-The browser checks `/api/health` before loading projects or enabling actions. The frontend and backend share an API schema constant and build identity. A missing health route or incompatible response blocks the UI with restart instructions, preventing a newly built browser from sending onboarding requests to an old API.
+- **Proceed with revision N** seals and authorizes only the displayed current proposal revision, then begins execution.
+- **Revise plan** asks for a new revision without approving the current one.
+- **Add Context and Replan** supplies missing facts for this task; it does not replace durable Project context.
+- **Cancel** ends the planning run before execution.
 
-Detect installed providers:
+Do not Proceed unless the proposed scope and completion evidence are acceptable.
+
+## Understand the result
+
+**Run details** contains:
+
+- current status and provider summary;
+- **Validation**, JARVIS's independently observed test result;
+- changed files and scope reconciliation;
+- chronological activity;
+- repository before/after evidence; and
+- the approval record and sealed revision.
+
+A provider saying it ran tests is not authoritative. The **Validation** section records whether JARVIS independently found and ran a supported test command and what it observed. A successful run normally leaves a dirty working tree because JARVIS does not automatically commit or push.
+
+While planning or executing, the workspace shows real persisted activity and elapsed time. Timing diagnostics are available after completion. They are local-only and contain stage durations rather than prompts, credentials, or environment values.
+
+Planning and Proceed acknowledge after their requested transition is persisted; long provider work then continues asynchronously in the local JARVIS process. SSE carries real chronological activity to the browser. JARVIS does not invent percentages or timer-based stages. One measured Codex smoke observed approximately 389 ms to accepted UI state, 20 seconds for planning, 377 ms for Proceed acknowledgement, 21 seconds for provider execution, and 239 ms for independent validation. These are examples, not latency guarantees.
+
+## Review or undo changes
+
+Inspect the target repository yourself:
 
 ```bash
-npm run build
-npm run cli -- provider detect
+git status
+git diff
 ```
 
-Run the Gate 1 checks:
+You are responsible for accepting, editing, reverting, or committing changes. Use your normal Git workflow and inspect paths carefully before undoing anything, especially when the repository had pre-existing changes. JARVIS does not reset, clean, stash, commit, or push the repository for you.
+
+## Safety model
+
+- The production alpha binds to localhost only.
+- JARVIS resolves and records a canonical repository path.
+- Planning is read-only; execution requires approval of one exact proposal revision.
+- Provider selection is explicit and there is no silent fallback.
+- Codex execution is repository-scoped with networking disabled; provider isolation differs by adapter, so this is not a claim of perfect sandboxing.
+- JARVIS observes before/after repository evidence and does not automatically commit or push.
+- JARVIS independently runs only the supported test command it discovers.
+- Test scripts are trusted repository code and can perform arbitrary project-defined behavior. Only onboard repositories you trust.
+- Models and providers can make mistakes. Review the proposal, changes, and validation evidence.
+
+See [SECURITY.md](SECURITY.md) for the security policy.
+
+## Data and privacy
+
+By default JARVIS stores its SQLite state at `data/jarvis.db`. It persists project settings, canonical repository paths, provider session IDs, instructions, proposal revisions, context, approval decisions, normalized events, repository snapshots, results, validation evidence, inspection fingerprints, and timing events.
+
+Use an isolated state directory:
 
 ```bash
-npm test
-npm run typecheck
+JARVIS_DATA_DIR=/absolute/path/to/jarvis-state npm run jarvis
 ```
 
-## Development mode
+To remove one project, use **Edit project settings → Remove project**. This removes JARVIS-owned history, not repository files. To reset all default state, stop JARVIS and move or delete `data/jarvis.db` using your normal file-management workflow. If `JARVIS_DATA_DIR` was set, reset the database in that directory instead. Back it up first if its history matters.
 
-Install dependencies, then start the API and browser development server in two terminals:
+JARVIS does not ship provider credentials. The selected provider may process repository content and prompts according to its own service, account, and privacy terms; JARVIS makes no broader privacy promise on the provider's behalf.
+
+## Stopping and restarting
+
+- Press `Ctrl+C` in the launch terminal to stop JARVIS.
+- Restart from the JARVIS repository with `npm run jarvis` and reopen the printed URL.
+- Completed and persisted history restores after restart.
+- There is no durable background worker. Stopping during planning or execution interrupts in-process work, and repository files may already have changed.
+- On startup, abandoned nonterminal work is marked interrupted with recovery guidance and is never rerun automatically.
+
+`npm run jarvis` creates `<JARVIS_DATA_DIR>/jarvis.instance.lock` (or `data/jarvis.instance.lock` by default) containing safe process and compatibility metadata. Ctrl+C or SIGTERM closes Fastify and removes only the owned lock. A compatible duplicate invocation prints the existing URL and does not start another frontend/API pair. Dead locks are recovered. Malformed locks are preserved with a diagnostic suffix. A live PID is never trusted without probing `/api/health`, which protects against PID reuse.
+
+Before hydrating projects or enabling actions, the browser verifies `/api/health` against the shared API schema and meaningful build identity. Older servers without that route are treated as incompatible. An incompatible JARVIS or unknown process occupying the port is reported with actionable guidance and is never terminated automatically.
+
+Read-only planning inspection uses a conservative fingerprint of canonical path, Git HEAD, normalized status, and visible dirty or untracked contents. An unchanged fingerprint can reuse prior inspection findings for context-only replanning. Any observed repository-state change invalidates the cache. Execution always captures fresh before/after evidence, and validation detection always runs after edits; neither is served from inspection cache.
+
+## Troubleshooting
+
+Each entry gives the visible symptom, likely cause, and next action.
+
+### Localhost page cannot be reached / JARVIS is not running
+
+**Symptom:** The browser cannot open the printed URL. **Cause:** The launch process exited, is still building, or was stopped. **Next action:** Check the launch terminal for an error. From the repository run `npm run jarvis`, wait for the URL, keep the terminal open, and open that exact URL.
+
+### A different JARVIS version is already running
+
+**Symptom:** Startup reports another instance or an incompatible build. **Cause:** A prior JARVIS process with a different schema, version, or build is still running. **Next action:** Stop its terminal with `Ctrl+C`, run `npm run jarvis` again, and reload. Use the PID shown by JARVIS only when the old terminal cannot be found; do not kill unrelated processes blindly.
+
+### Port already occupied
+
+**Symptom:** Startup reports that `4173` or an API port is in use. **Cause:** Another process owns the local port. **Next action:** Stop the known process using that port, then rerun `npm run jarvis`. Do not terminate an unknown process without identifying it.
+
+### API unavailable or incompatible
+
+**Symptom:** The page says JARVIS could not load or requests fail. **Cause:** The local API did not start, stopped, or does not match the browser build. **Next action:** Stop JARVIS, rerun `npm run jarvis` so the client and API rebuild together, then reload. Save startup output if it persists.
+
+### Codex unavailable or authentication required
+
+**Symptom:** Codex is not installed, unavailable, or cannot be selected. **Cause:** The `codex` executable is missing from the launch environment or is not authenticated. **Next action:** Run `codex --version`, then `codex login`; restart JARVIS and confirm Codex shows **Ready**.
+
+### Claude Code unavailable
+
+**Symptom:** Claude Code is disabled or reports unavailable. **Cause:** The `claude` executable is absent or authentication could not be confirmed. **Next action:** Verify `claude --version`, complete the authentication flow for your installed release, restart JARVIS, and remember that this adapter is not yet live-tested for the current release.
+
+### Repository path does not exist or is unreadable
+
+**Symptom:** Setup rejects the path. **Cause:** It is relative, misspelled, not a directory, or inaccessible to your user. **Next action:** In the repository run `pwd`, paste the complete absolute path, and confirm your user can list its contents.
+
+### Repository is not Git-based
+
+**Symptom:** Path validation says the directory is not a Git repository. **Cause:** The selected directory has no Git metadata or is the wrong level. **Next action:** Choose the actual Git repository root. Do not initialize or modify an important directory merely to bypass the warning.
+
+### Planning appears slow
+
+**Symptom:** The UI remains in inspection/planning. **Cause:** Provider startup, repository inspection, and model work can take time. **Next action:** Follow the persisted activity stages and elapsed time, keep JARVIS running, and avoid submitting the action repeatedly. If it never completes, record sanitized output and report a bug.
+
+### Execution was interrupted or failed
+
+**Symptom:** JARVIS stopped, reports failure, or does not show a completed result. **Cause:** The provider, process, or application ended after execution may have begun. **Next action:** Assume files may have changed. In the target repository run `git status` and `git diff`, review Run details and terminal output, then restart JARVIS. Do not blindly Proceed again.
+
+### Tests failed
+
+**Symptom:** Validation reports failure or timeout. **Cause:** JARVIS ran the repository's supported test script and observed a non-passing result. **Next action:** Read the Validation output, inspect `git diff`, and decide whether to revise the task, fix the change manually, or revert it through your normal Git workflow. Provider edits remain in the repository.
+
+### No supported automated tests were found
+
+**Symptom:** Validation says automated tests were not run. **Cause:** The repository lacks a supported non-placeholder `package.json` test script or uses an unsupported project type. **Next action:** Review the changes manually and run the project's documented validation yourself. Do not interpret this state as a test pass.
+
+### Browser shows stale content
+
+**Symptom:** The browser does not reflect the latest persisted run. **Cause:** The event connection or cached client state may be stale. **Next action:** Reload the printed localhost URL. If the state still differs from the terminal or repository, restart JARVIS and report the discrepancy with sanitized evidence.
+
+## Alpha limitations
+
+- Developer-oriented terminal installation; no desktop wrapper.
+- Local machine only; no cloud hosting or cross-device synchronization.
+- Release-verified on macOS only; Linux and Windows have not been release-tested.
+- Independent validation is limited to supported non-placeholder JavaScript/TypeScript `package.json` test scripts.
+- Claude Code is not yet live-tested for this release.
+- No automatic rollback, commit, push, or general-purpose recovery; users must review all changes.
+- No durable background worker; restart interrupts active in-process work.
+- Chronological activity can expose technical provider and repository event details.
+- No voice or general personal memory.
+- No reliable mid-execution cancellation guarantee for every provider.
+- Models may misunderstand tasks or produce incorrect changes.
+
+## Roadmap
+
+Future work may include broader provider verification, validation support, packaging, and interface refinement. See [docs/ROADMAP.md](docs/ROADMAP.md); current behavior takes precedence over future direction.
+
+## Development
+
+For contributors, run the API and browser development server in separate terminals:
 
 ```bash
 npm install
@@ -108,83 +267,27 @@ npm run dev:api
 npm run dev
 ```
 
-Open `http://127.0.0.1:4173`. The API binds only to `127.0.0.1:3000`, uses `data/jarvis.db` by default, and the Vite server proxies `/api` requests to it. Set `JARVIS_DATABASE_PATH` before `npm run dev:api` to use another database.
+For deterministic UI-only fixture data, use `VITE_JARVIS_DATA_MODE=mock npm run dev`. Production mode never silently falls back to mock data.
 
-SQLite and all JARVIS-owned project/run state live in that database. For an isolated installation or smoke test, use `JARVIS_DATABASE_PATH=/absolute/path/to/isolated/jarvis.db npm run dev:api`. Remove one project through **Edit project settings → Remove project**; this deletes only its JARVIS record and history. To remove all JARVIS state, stop JARVIS and delete the configured database or isolated data directory. Neither operation deletes a connected repository.
-
-Real mode detects local providers, loads projects from SQLite, and asks the selected provider to inspect the repository read-only. Codex uses the official SDK; Claude Code uses the authenticated local `claude` executable in noninteractive JSON mode. Both persist proposal revisions and provider session IDs. Proceed approves and executes only that persisted revision inside the canonical repository. Codex uses repository-scoped workspace-write sandboxing with networking disabled. Claude uses `acceptEdits` with only read and file-edit tools; it never uses `--dangerously-skip-permissions`.
-
-Before execution JARVIS persists branch, HEAD, Git status, dirty-file fingerprints, and the canonical path. After execution it captures the same evidence, labels newly dirty files as execution-window changes, and labels changed pre-existing dirty files as ambiguous. It never resets, cleans, stashes, commits, pushes, or discards work. A changed HEAD is treated as an execution failure.
-
-After edits, JARVIS independently detects a supported `package.json` test script and invokes the selected package manager without a shell. The command is derived entirely from server-inspected repository state, has a timeout, and persists exit status, duration, and bounded output. Provider completion text alone is not treated as verification.
-
-Execution events are written to SQLite before display. The SSE endpoint streams live normalized activity, while ordinary run and event GET routes restore the durable history after refresh. Failures retain snapshots, prior events, partial changes, and verification evidence for recovery.
-
-Planning and Proceed requests return an HTTP `202` after JARVIS persists the accepted transition. The provider operation continues asynchronously in the local server process, and the existing SSE stream updates the workspace from real persisted stages. The UI shows elapsed time from server timestamps without invented percentages. Typical latency depends on repository size and the selected provider; JARVIS does not promise a fixed response time.
-
-Planning revisions and context replans reuse the persisted provider session only for the same project and provider. A small inspection fingerprint combines the canonical path, Git HEAD, porcelain status, and the contents of visible dirty or untracked files. An unchanged fingerprint permits prior inspection findings to be reused; HEAD changes, dirty-content changes, and untracked changes invalidate it. Non-Git repositories conservatively skip reuse. Fresh pre/post execution evidence and post-edit validation detection are never cached.
-
-Timing diagnostics are derived from persisted local events and are never sent to an external telemetry service. If JARVIS restarts while in-process planning, queued execution, provider execution, or validation is active, the run is marked interrupted. It is never automatically rerun; repository evidence and working-tree changes remain available for review.
-
-Client initialization is explicit and idempotent: constructors do not launch network work, React starts one tracked initialization, and the UI remains in a hydration state until the selected project and its persisted run have been applied. Refreshing a project workspace therefore cannot treat `activeRun: null` as ready state before restoration finishes.
-
-Use **Revise plan** to correct, narrow, or redirect the existing proposal. Use **Add Context and Replan** when relevant facts are external to the repository. The normal interaction is one freeform `summary` sentence under “What should JARVIS know?” Structured expected/actual behavior, reproduction steps, evidence, and constraints appear only when the planner says the context remains insufficient and asks one focused follow-up question. JARVIS combines user context with general model knowledge, then inspects the repository to confirm actual implementation facts. User claims, model inferences, repository findings, and unresolved questions remain explicitly separate. JARVIS persists the normalized packet before replanning in the same run and session; provider failure leaves it stored for auditing.
-
-Gate 2.6 does not perform live web research. A provider-neutral `ResearchAdapter` boundary is reserved for future cited evidence, but no adapter is registered and Codex planning remains network-disabled.
-
-A provider is selectable only when Setup reports it installed and authenticated. A grounded proposal must cite the selected repository, and Run details shows the selected provider and persisted session ID. Provider or server failures are shown honestly; selecting Claude never substitutes Codex, and selecting Codex never substitutes Claude.
-
-For explicit UI-only development with deterministic data:
+Run deterministic validation with:
 
 ```bash
-VITE_JARVIS_DATA_MODE=mock npm run dev
+npm test
+npm run typecheck
+npm run build
 ```
 
-This is the only built-in demo path; production mode never seeds MK 42 or silently falls back to mock data.
+The temporary Python baseline remains until TypeScript parity is verified.
 
-Run all deterministic checks with `npm test`, `npm run typecheck`, and `npm run build`. The temporary Python baseline remains `python -m pytest` until TypeScript parity is complete.
+## Contributing and support
 
-## Disposable execution smoke test
-
-Create two temporary Git repositories with tiny implementation files and initial commits. Add one with Codex and one with Claude Code through onboarding using isolated state. Ask each to add a `multiply` function without committing or pushing. Review the exact scope, Proceed, refresh, and confirm the selected provider/session, completed or failed status, changed paths, and provider summary restore. Verify `git status` contains only expected uncommitted changes and `git log -1` is still the initial commit. Never use an important repository as the first write target.
-
-## Independent validation
-
-After a provider finishes editing a JavaScript or TypeScript repository, JARVIS automatically runs a real, non-placeholder `test` script from `package.json`. It selects npm, pnpm, Yarn, or Bun from the repository lockfile and runs the tests locally inside the selected repository. Unsupported repository types and projects without a supported test script report that automated validation was not run.
-
-Independent JARVIS validation remains authoritative. Providers are asked not to repeat the same full suite solely as final confirmation, although they may run targeted checks needed while implementing. Provider-reported checks remain activity evidence and never replace the single independent validation run.
-
-Test scripts are repository code and may perform arbitrary project behavior. Onboard only repositories you trust. JARVIS does not automatically commit or push provider edits or validation results.
-
-## Alpha limitations
-
-JARVIS is a local developer alpha: no voice, web research, remote execution, desktop packaging, background jobs, automatic commits, pushes, or reliable mid-execution cancellation. Codex and Claude expose different raw telemetry; JARVIS persists a smaller normalized event set. Independent validation currently supports JavaScript and TypeScript `package.json` test scripts only.
-
-## Troubleshooting
-
-### A different JARVIS version is already running
-
-Stop the old JARVIS terminal with Ctrl+C, run `npm run jarvis` again, and reload the browser. If the old terminal cannot be found, use the PID printed by JARVIS to identify and stop that specific stale process. Do not kill unrelated processes blindly.
-
-If port 4173 belongs to another application, JARVIS refuses to start and reports the conflict; it never silently moves to another port or terminates the owner. Stop or reconfigure the application occupying the port, then retry.
-
-If a repository cannot be added, confirm that the pasted path exists on the same computer as the JARVIS server, resolves to a directory, and is readable by your user. JARVIS reports missing, non-directory, and unreadable paths separately and retains server-side canonicalization. A Git working tree may be dirty; onboarding does not alter it.
-
-The default data directory is `data/` under the JARVIS checkout. Override it with an absolute `JARVIS_DATA_DIR` for isolated installations or tests. Removing JARVIS state or a project record never removes repository files.
-
-## Planned v0.1 workflow
-
-Later approved gates add interface parity, packaging, and removal of the temporary Python baseline after verification.
-
-Ollama, Whisper, voice, calendar, email, mobile apps, embeddings, and domain modules are not part of v0.1.
-
-## Documentation
-
-- [Product requirements](docs/PRD.md)
-- [Roadmap](docs/ROADMAP.md)
-- [Design references](docs/DESIGN_REFERENCES.md)
+- [Contributing guide](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
+- [Bug report template](.github/ISSUE_TEMPLATE/bug_report.yml)
+- [Product requirements](docs/PRD.md)
+- [New-user audit](docs/NEW_USER_AUDIT.md)
+- [License](LICENSE)
 
-## License
+A useful bug report includes operating system, Node version, JARVIS version or commit, selected provider and version, sanitized startup output, exact error category, reproduction steps, sanitized logs, and whether the target repository was clean before execution.
 
-Apache License 2.0. See [LICENSE](LICENSE).
+Never post credentials, tokens, private source code, personal filesystem details, or an entire JARVIS database.
