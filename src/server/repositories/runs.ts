@@ -286,6 +286,11 @@ export class RunRepository {
 
   recordExecutionEvent(runId: string, type: string, payload: unknown, occurredAt = this.clock().toISOString()): void { this.appendEvent(runId, type, payload, occurredAt); }
 
+  recordVerification(runId: string, verification: unknown): Run {
+    this.database.prepare("UPDATE runs SET verification_json=? WHERE id=?").run(JSON.stringify(verification), runId);
+    return this.require(runId);
+  }
+
   completeExecution(runId: string, result: unknown, verification: unknown, snapshot: unknown, providerSessionId: string | null): Run {
     const at = this.clock().toISOString();
     this.database.prepare("UPDATE runs SET status='completed', result_json=?, verification_json=?, post_snapshot_json=?, provider_session_id=?, completed_at=? WHERE id=?")

@@ -9,12 +9,11 @@ import { NodeProcessRunner, type ProcessRunner } from "../providers/process-runn
 import { ProjectRepository } from "../repositories/projects.js";
 import { InvalidRunTransitionError, RunRepository } from "../repositories/runs.js";
 import { canonicalizeRepositoryPath, inspectRepositoryPath, InvalidRepositoryPathError } from "../security/repository-path.js";
+import { ValidationService } from "./validation.js";
 
 export class RepositoryIdentityError extends Error {}
 export class ExecutionFailedError extends Error {}
 
-const ALLOWED_VALIDATORS = new Set(["npm", "npx", "pnpm", "yarn", "node", "python", "python3", "pytest", "cargo", "go"]);
-const truncate = (text: string): string => text.length > 12_000 ? `${text.slice(0, 12_000)}\n[output truncated]` : text;
 function approvedPaths(scope: string[]): string[] {
   return scope.flatMap((entry) => {
     const quoted = [...entry.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
@@ -25,8 +24,9 @@ function approvedPaths(scope: string[]): string[] {
 
 export class ExecutionService {
   private readonly active = new Set<string>();
+  private readonly validation: ValidationService;
 
-  constructor(private readonly projects: ProjectRepository, private readonly runs: RunRepository, private readonly adapters: AgentAdapterRegistry, private readonly runner: ProcessRunner = new NodeProcessRunner()) {}
+  constructor(private readonly projects: ProjectRepository, private readonly runs: RunRepository, private readonly adapters: AgentAdapterRegistry, private readonly runner: ProcessRunner = new NodeProcessRunner(), validation?: ValidationService) { this.validation = validation ?? new ValidationService(runner); }
 
   async execute(runId: string): Promise<import("../../shared/runs.js").Run> {
     const initial = this.runs.require(runId);
@@ -55,10 +55,11 @@ export class ExecutionService {
       const allowedPaths = approvedPaths(initial.proposal.expectedScope);
       const outsideScope = attribution.changedFiles.filter((file) => !allowedPaths.some((normalized) => file === normalized || file.startsWith(normalized.endsWith("/") ? normalized : `${normalized}/`)));
       if (outsideScope.length) throw new ExecutionFailedError(`Execution changed files outside the approved scope: ${outsideScope.join(", ")}`);
-      const verification = await this.verify(runId, canonical, initial.proposal.validationCommands);
+      const verificationBase = { repositoryValid: true, checks: [] };
+      const validation = await this.validation.validate(canonical, (state) => this.runs.recordVerification(runId, { ...verificationBase, message: validationMessage(state.status), validation: state }));
+      const verification: Verification = { ...verificationBase, message: validationMessage(validation.status), validation };
       lastVerification = verification;
       this.runs.recordExecutionEvent(runId, "verification_result", verification);
-      if (verification.checks.some((check) => !check.passed)) throw new ExecutionFailedError("An approved validation command failed.");
       const result: ExecutionResultRecord = { summary: providerResult.summary, providerSessionId: providerResult.providerSessionId, succeeded: true, ...attribution };
       const completed = this.runs.completeExecution(runId, result, verification, post, providerResult.providerSessionId);
       this.projects.reconcileExecution(project.id, runId, result.summary, providerResult.providerSessionId);
@@ -99,19 +100,13 @@ export class ExecutionService {
     return { changedFiles: [...new Set([...introduced, ...ambiguousFiles])].sort(), createdFiles: introduced.filter((file) => post.files[file].status === "??" || post.files[file].status.includes("A")), deletedFiles: [...after].filter((file) => post.files[file].status.includes("D") && !before.has(file)), preExistingFiles: [...before].sort(), ambiguousFiles: ambiguousFiles.sort() };
   }
 
-  private async verify(runId: string, path: string, commands: string[]): Promise<Verification> {
-    const checks: Verification["checks"] = [];
-    for (const command of commands) {
-      if (/[;&|><`$]/.test(command)) throw new ExecutionFailedError(`Approved validation command is not safely executable: ${command}`);
-      const [executable, ...args] = command.trim().split(/\s+/);
-      if (!ALLOWED_VALIDATORS.has(executable)) throw new ExecutionFailedError(`Validation executable is not allowed: ${executable}`);
-      const started = Date.now();
-      this.runs.recordExecutionEvent(runId, "command_started", { command });
-      const output = await this.runner.run(executable, args, { cwd: path, timeoutMs: 120_000 });
-      const check = { command, exitCode: output.exitCode, durationMs: Date.now() - started, output: truncate(`${output.stdout}${output.stderr ? `\n${output.stderr}` : ""}`), passed: output.exitCode === 0 };
-      checks.push(check);
-      this.runs.recordExecutionEvent(runId, "command_completed", check);
-    }
-    return { repositoryValid: canonicalizeRepositoryPath(path) === path, message: commands.length ? "Approved validation commands completed." : "Changes were applied. Automated validation was not run.", checks };
-  }
+}
+
+function validationMessage(status: import("../../shared/runs.js").ValidationResult["status"]): string {
+  if (status === "passed") return "Tests passed.";
+  if (status === "failed") return "Changes were applied, but tests failed.";
+  if (status === "timed_out") return "Changes were applied, but tests timed out.";
+  if (status === "invocation_failed") return "Changes were applied, but the test runner was unavailable.";
+  if (status === "not_supported") return "No supported automated tests detected.";
+  return status === "pending" ? "Tests are pending." : "Tests are running.";
 }

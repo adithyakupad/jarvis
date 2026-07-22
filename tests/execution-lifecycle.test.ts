@@ -47,11 +47,12 @@ class TestRunner implements ProcessRunner {
   }
 }
 
-function proposal(includeDirty = false): PlanProposal { return { objective: "Add multiplication", currentState: "src/math.ts exists.", steps: ["Add multiply"], expectedScope: includeDirty ? ["src/math.ts", "notes.txt"] : ["src/math.ts"], risks: [], completionTest: "Tests pass.", validationCommands: ["npm run test"], revision: 1, providerSessionId: "session-plan" }; }
+function proposal(includeDirty = false): PlanProposal { return { objective: "Add multiplication", currentState: "src/math.ts exists.", steps: ["Add multiply"], expectedScope: includeDirty ? ["src/math.ts", "notes.txt"] : ["src/math.ts"], risks: [], completionTest: "Tests pass.", validationCommands: ["rm -rf /"], revision: 1, providerSessionId: "session-plan" }; }
 
 function fixture(behavior: "success" | "failure" | "touch-dirty" = "success", validationExitCode = 0, provider: ProviderId = "codex") {
   const root = mkdtempSync(join(tmpdir(), "jarvis-execution-")); const repo = join(root, "repo"); mkdirSync(join(repo, "src"), { recursive: true });
   writeFileSync(join(repo, "src", "math.ts"), "export const add = (a: number, b: number) => a + b;\n");
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ scripts: { test: "vitest run" } }));
   spawnSync("git", ["init"], { cwd: repo }); spawnSync("git", ["config", "user.email", "test@example.com"], { cwd: repo }); spawnSync("git", ["config", "user.name", "Test"], { cwd: repo }); spawnSync("git", ["add", "."], { cwd: repo }); spawnSync("git", ["commit", "-m", "initial"], { cwd: repo });
   const canonicalRepo = realpathSync.native(repo);
   const databasePath = join(root, "jarvis.db"); const database = openDatabase(databasePath); databases.push(database);
@@ -68,15 +69,15 @@ describe("Gate 3 execution lifecycle", () => {
     const context = fixture(); writeFileSync(join(context.repo, "notes.txt"), "pre-existing\n");
     context.runs.approve(context.runId, 1);
     const completed = await context.execution.execute(context.runId);
-    expect(completed).toMatchObject({ status: "completed", approved_proposal_revision: 1, execution_result: { changedFiles: ["src/math.ts"], preExistingFiles: ["notes.txt"], ambiguousFiles: [] }, verification: { checks: [{ command: "npm run test", passed: true }] } });
+    expect(completed).toMatchObject({ status: "completed", approved_proposal_revision: 1, execution_result: { changedFiles: ["src/math.ts"], preExistingFiles: ["notes.txt"], ambiguousFiles: [] }, verification: { validation: { status: "passed", commandDisplay: "npm test", exitCode: 0 } } });
     expect(context.adapter.request).toMatchObject({ repositoryPath: context.repo, approvedRevision: 1, providerSessionId: "session-plan", allowedScope: ["src/math.ts"] });
-    expect(context.runner.validationCalls).toEqual(["npm run test"]);
+    expect(context.runner.validationCalls).toEqual(["npm test"]);
     await context.execution.execute(context.runId);
     expect(context.adapter.executeCalls).toBe(1);
     expect(context.runs.events(context.runId).map((event) => event.type)).toEqual(expect.arrayContaining(["execution_started", "provider_message", "verification_started", "verification_result", "execution_completed"]));
     context.database.close();
     const restarted = openDatabase(context.databasePath); databases.push(restarted); const restoredRuns = new RunRepository(restarted);
-    expect(restoredRuns.require(context.runId)).toMatchObject({ status: "completed", execution_result: { changedFiles: ["src/math.ts"] } });
+    expect(restoredRuns.require(context.runId)).toMatchObject({ status: "completed", execution_result: { changedFiles: ["src/math.ts"] }, verification: { validation: { status: "passed", exitCode: 0, stdout: "passed" } } });
     expect(restoredRuns.events(context.runId).at(-1)?.type).toBe("execution_completed");
   });
 
@@ -94,6 +95,7 @@ describe("Gate 3 execution lifecycle", () => {
     expect(codex.executeCalls).toBe(0);
     expect(context.adapter.request).toMatchObject({ projectId: "project" });
     expect(context.runs.require(context.runId).provider).toBe("claude-code");
+    expect(context.runner.validationCalls).toEqual(["npm test"]);
   });
 
   it("persists snapshots and failure events when the provider fails", async () => {
@@ -101,6 +103,7 @@ describe("Gate 3 execution lifecycle", () => {
     await expect(context.execution.execute(context.runId)).rejects.toThrow(ExecutionFailedError);
     expect(context.runs.require(context.runId)).toMatchObject({ status: "failed", pre_execution_snapshot: { canonicalPath: context.repo }, post_execution_snapshot: { canonicalPath: context.repo }, failure: { message: "provider stopped" } });
     expect(context.runs.events(context.runId).at(-1)?.type).toBe("execution_failed");
+    expect(context.runner.validationCalls).toEqual([]);
   });
 
   it("labels a provider-touched pre-existing dirty file as ambiguous", async () => {
@@ -109,10 +112,10 @@ describe("Gate 3 execution lifecycle", () => {
     expect(completed.execution_result).toMatchObject({ preExistingFiles: ["notes.txt"], ambiguousFiles: ["notes.txt"], changedFiles: ["notes.txt", "src/math.ts"] });
   });
 
-  it("does not complete when an approved validation fails", async () => {
+  it("completes provider edits while persisting an independent validation failure", async () => {
     const context = fixture("success", 1); context.runs.approve(context.runId, 1);
-    await expect(context.execution.execute(context.runId)).rejects.toThrow("approved validation command failed");
-    expect(context.runs.require(context.runId)).toMatchObject({ status: "failed", verification: { checks: [{ passed: false }] } });
+    await context.execution.execute(context.runId);
+    expect(context.runs.require(context.runId)).toMatchObject({ status: "completed", verification: { validation: { status: "failed", exitCode: 1, failureCategory: "nonzero_exit" } } });
   });
 
   it("serves persisted events, SSE, and rejects browser-supplied execution controls", async () => {

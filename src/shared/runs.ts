@@ -48,7 +48,23 @@ export const RepositorySnapshotSchema = z.object({
 });
 
 export const ExecutionResultSchema = z.object({ summary: z.string(), providerSessionId: z.string().nullable(), succeeded: z.boolean(), changedFiles: z.array(z.string()), createdFiles: z.array(z.string()), deletedFiles: z.array(z.string()), preExistingFiles: z.array(z.string()), ambiguousFiles: z.array(z.string()) });
-export const VerificationSchema = z.object({ repositoryValid: z.boolean(), message: z.string(), checks: z.array(z.object({ command: z.string(), exitCode: z.number().nullable(), durationMs: z.number().nonnegative(), output: z.string(), passed: z.boolean() })) });
+export const ValidationStatusSchema = z.enum(["not_supported", "pending", "running", "passed", "failed", "timed_out", "invocation_failed"]);
+export const ValidationResultSchema = z.object({
+  status: ValidationStatusSchema,
+  packageManager: z.enum(["npm", "pnpm", "yarn", "bun"]).nullable(),
+  executable: z.string().nullable(),
+  args: z.array(z.string()),
+  commandDisplay: z.string().nullable(),
+  startedAt: z.string().datetime({ offset: true }).nullable(),
+  completedAt: z.string().datetime({ offset: true }).nullable(),
+  exitCode: z.number().int().nullable(),
+  signal: z.string().nullable(),
+  stdout: z.string(),
+  stderr: z.string(),
+  durationMs: z.number().nonnegative().nullable(),
+  failureCategory: z.string().nullable(),
+});
+export const VerificationSchema = z.object({ repositoryValid: z.boolean(), message: z.string(), checks: z.array(z.object({ command: z.string(), exitCode: z.number().nullable(), durationMs: z.number().nonnegative(), output: z.string(), passed: z.boolean() })).default([]), validation: ValidationResultSchema.nullable().default(null) });
 export const RunEventSchema = z.object({ sequence: z.number().int().positive(), type: z.string(), payload: z.unknown(), occurredAt: z.string().datetime({ offset: true }) });
 
 export const ApprovalDecisionSchema = z.enum(["proceed", "cancel"]);
@@ -80,4 +96,5 @@ export type RunStatus = z.infer<typeof RunStatusSchema>;
 export type RepositorySnapshot = z.infer<typeof RepositorySnapshotSchema>;
 export type ExecutionResultRecord = z.infer<typeof ExecutionResultSchema>;
 export type Verification = z.infer<typeof VerificationSchema>;
+export type ValidationResult = z.infer<typeof ValidationResultSchema>;
 export type RunEvent = z.infer<typeof RunEventSchema>;

@@ -37,6 +37,14 @@ Gates 1, 2, 2.5, 2.6, 2.7, and 3 provide:
 
 The automated suite uses deterministic fake adapters. In real mode, Proceed seals the current proposal revision and executes it through the selected local provider. There is no cross-provider or mock fallback.
 
+## Provider status
+
+- Codex: implemented and live-tested
+- Claude Code: implemented, but not yet live-tested in the current alpha environment
+
+JARVIS never silently switches providers. If the selected provider is unavailable,
+the run fails explicitly rather than falling back to another provider.
+
 The earlier Python implementation remains available until the TypeScript version reaches verified parity.
 
 ## First run
@@ -129,9 +137,15 @@ Run all deterministic checks with `npm test`, `npm run typecheck`, and `npm run 
 
 Create two temporary Git repositories with tiny implementation files and initial commits. Add one with Codex and one with Claude Code through onboarding using isolated state. Ask each to add a `multiply` function without committing or pushing. Review the exact scope, Proceed, refresh, and confirm the selected provider/session, completed or failed status, changed paths, and provider summary restore. Verify `git status` contains only expected uncommitted changes and `git log -1` is still the initial commit. Never use an important repository as the first write target.
 
+## Independent validation
+
+After a provider finishes editing a JavaScript or TypeScript repository, JARVIS automatically runs a real, non-placeholder `test` script from `package.json`. It selects npm, pnpm, Yarn, or Bun from the repository lockfile and runs the tests locally inside the selected repository. Unsupported repository types and projects without a supported test script report that automated validation was not run.
+
+Test scripts are repository code and may perform arbitrary project behavior. Onboard only repositories you trust. JARVIS does not automatically commit or push provider edits or validation results.
+
 ## Alpha limitations
 
-JARVIS is a local developer alpha: no voice, web research, remote execution, desktop packaging, background jobs, automatic commits, pushes, or reliable mid-execution cancellation. Codex and Claude expose different raw telemetry; JARVIS persists a smaller normalized event set. Validation runs only when a command was part of the approved proposal and passes the server allowlist. Otherwise the UI states: “Changes were applied. Automated validation was not run.”
+JARVIS is a local developer alpha: no voice, web research, remote execution, desktop packaging, background jobs, automatic commits, pushes, or reliable mid-execution cancellation. Codex and Claude expose different raw telemetry; JARVIS persists a smaller normalized event set. Independent validation currently supports JavaScript and TypeScript `package.json` test scripts only.
 
 ## Planned v0.1 workflow
 
