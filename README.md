@@ -71,11 +71,15 @@ npm install
 npm run jarvis
 ```
 
-Open `http://127.0.0.1:4173`. This builds JARVIS, starts the API and web interface together, and binds both to `127.0.0.1`. State is stored in `data/jarvis.db` by default. To isolate it:
+Open the single URL printed by JARVIS (normally `http://127.0.0.1:4173`). The command builds the production React application and serves it with `/api/*` from one Fastify process and one loopback origin; it does not rely on the Vite development proxy. State is stored in `data/jarvis.db` by default. To isolate it:
 
 ```bash
 JARVIS_DATA_DIR=/absolute/path/to/isolated-state npm run jarvis
 ```
+
+The launcher creates `jarvis.instance.lock` inside the resolved data directory. A second invocation with the same compatible running instance prints its existing URL and exits successfully instead of starting duplicate servers. Dead locks are removed, malformed locks are preserved with a diagnostic suffix, and orderly Ctrl+C or SIGTERM shutdown removes only the lock owned by that process. JARVIS never kills a conflicting process automatically.
+
+The browser checks `/api/health` before loading projects or enabling actions. The frontend and backend share an API schema constant and build identity. A missing health route or incompatible response blocks the UI with restart instructions, preventing a newly built browser from sending onboarding requests to an old API.
 
 Detect installed providers:
 
@@ -155,6 +159,18 @@ Test scripts are repository code and may perform arbitrary project behavior. Onb
 ## Alpha limitations
 
 JARVIS is a local developer alpha: no voice, web research, remote execution, desktop packaging, background jobs, automatic commits, pushes, or reliable mid-execution cancellation. Codex and Claude expose different raw telemetry; JARVIS persists a smaller normalized event set. Independent validation currently supports JavaScript and TypeScript `package.json` test scripts only.
+
+## Troubleshooting
+
+### A different JARVIS version is already running
+
+Stop the old JARVIS terminal with Ctrl+C, run `npm run jarvis` again, and reload the browser. If the old terminal cannot be found, use the PID printed by JARVIS to identify and stop that specific stale process. Do not kill unrelated processes blindly.
+
+If port 4173 belongs to another application, JARVIS refuses to start and reports the conflict; it never silently moves to another port or terminates the owner. Stop or reconfigure the application occupying the port, then retry.
+
+If a repository cannot be added, confirm that the pasted path exists on the same computer as the JARVIS server, resolves to a directory, and is readable by your user. JARVIS reports missing, non-directory, and unreadable paths separately and retains server-side canonicalization. A Git working tree may be dirty; onboarding does not alter it.
+
+The default data directory is `data/` under the JARVIS checkout. Override it with an absolute `JARVIS_DATA_DIR` for isolated installations or tests. Removing JARVIS state or a project record never removes repository files.
 
 ## Planned v0.1 workflow
 

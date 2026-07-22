@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { extname, join, resolve } from "node:path";
 import { z, ZodError } from "zod";
 
 import type { JarvisDatabase } from "../database/connection.js";
@@ -17,6 +17,7 @@ import { ProviderIdSchema, ProjectProfileSchema } from "../../shared/projects.js
 import { inspectRepositoryPath, InvalidRepositoryPathError } from "../security/repository-path.js";
 import { ContextPacketFieldsSchema, ContextPacketSchema } from "../../shared/context.js";
 import type { PlanProposal, Run } from "../../shared/runs.js";
+import { API_SCHEMA_VERSION, DEVELOPMENT_BUILD_ID, HealthResponseSchema, type HealthResponse } from "../../shared/runtime.js";
 
 const idParams = z.object({ projectId: z.string().trim().min(1) });
 const runParams = z.object({ runId: z.string().trim().min(1) });
@@ -37,18 +38,34 @@ export interface ApiDependencies {
   adapters: AgentAdapterRegistry;
   processRunner?: ProcessRunner;
   schedule?: (task: () => Promise<void>) => void;
+  runtime?: Partial<HealthResponse>;
+  publicDirectory?: string;
 }
 
 function runResponse(runs: RunRepository, runId: string): { run: Run; revisions: PlanProposal[]; events: ReturnType<RunRepository["events"]> } {
   return { run: runs.require(runId), revisions: runs.proposalRevisions(runId), events: runs.events(runId) };
 }
 
-export function buildApi({ database, adapters, processRunner = new NodeProcessRunner(), schedule = (task) => { setImmediate(() => void task().catch(() => undefined)); } }: ApiDependencies): FastifyInstance {
+export function buildApi({ database, adapters, processRunner = new NodeProcessRunner(), schedule = (task) => { setImmediate(() => void task().catch(() => undefined)); }, runtime = {}, publicDirectory }: ApiDependencies): FastifyInstance {
   const app = Fastify({ logger: false });
   const projects = new ProjectRepository(database);
   const runs = new RunRepository(database);
   const planning = new PlanningService(projects, runs, adapters, processRunner);
   const execution = new ExecutionService(projects, runs, adapters, processRunner);
+  const health = HealthResponseSchema.parse({ status: "ready", appVersion: "0.1.0", apiSchemaVersion: API_SCHEMA_VERSION, buildId: DEVELOPMENT_BUILD_ID, processId: process.pid, startedAt: new Date().toISOString(), bindHost: "127.0.0.1", port: 3000, ...runtime });
+
+  app.get("/api/health", async () => health);
+  if (publicDirectory) {
+    const root = resolve(publicDirectory);
+    app.get("/", async (_request, reply) => reply.type("text/html; charset=utf-8").send(readFileSync(join(root, "index.html"))));
+    app.get("/assets/*", async (request, reply) => {
+      const relative = (request.params as { "*": string })["*"];
+      const file = resolve(root, "assets", relative);
+      if (!file.startsWith(`${resolve(root, "assets")}/`)) return reply.code(404).send({ error: { code: "route_missing", message: "Asset was not found." } });
+      const mime = extname(file) === ".js" ? "text/javascript; charset=utf-8" : extname(file) === ".css" ? "text/css; charset=utf-8" : "application/octet-stream";
+      try { return reply.type(mime).send(readFileSync(file)); } catch { return reply.code(404).send({ error: { code: "route_missing", message: "Asset was not found." } }); }
+    });
+  }
 
   app.get("/api/setup", async () => ({ providers: await detectProviders(processRunner), projectCount: projects.list().length }));
   app.get("/api/setup/providers", async () => ({ providers: await detectProviders(processRunner) }));

@@ -12,7 +12,7 @@
     "build:client": "vite build",
     "dev": "vite",
     "dev:api": "npm run build:server && node dist/src/server/http/start.js",
-    "jarvis": "npm run build && node scripts/start-alpha.mjs",
+    "jarvis": "node scripts/start-alpha.mjs",
     "cli": "node dist/src/cli.js",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json"

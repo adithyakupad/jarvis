@@ -40,18 +40,19 @@ export function canonicalizeRepositoryPath(repositoryPath: string): string {
   if (!isAbsolute(expanded)) {
     throw new InvalidRepositoryPathError("Repository path must be absolute.");
   }
+  if (!existsSync(expanded)) throw new InvalidRepositoryPathError(`Repository path '${repositoryPath}' does not exist.`);
   try {
     const canonicalPath = realpathSync.native(expanded);
     if (!statSync(canonicalPath).isDirectory()) {
       throw new InvalidRepositoryPathError("Repository path must be a directory.");
     }
-    accessSync(canonicalPath, constants.R_OK | constants.X_OK);
+    try { accessSync(canonicalPath, constants.R_OK | constants.X_OK); } catch { throw new InvalidRepositoryPathError(`Repository path '${repositoryPath}' cannot be read.`); }
     if (realpathSync.native(canonicalPath) !== canonicalPath) throw new InvalidRepositoryPathError("Repository path could not be resolved consistently.");
     return canonicalPath;
   } catch (error) {
     if (error instanceof InvalidRepositoryPathError) throw error;
     throw new InvalidRepositoryPathError(
-      `Repository path '${repositoryPath}' does not exist or cannot be read.`,
+      `Repository path '${repositoryPath}' cannot be read.`,
     );
   }
 }

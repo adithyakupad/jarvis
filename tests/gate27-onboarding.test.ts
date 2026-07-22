@@ -39,7 +39,9 @@ describe("Gate 2.7 local project onboarding", () => {
     const context = fixture();
     const valid = await context.app.inject({ method: "POST", url: "/api/projects/validate-path", payload: { repository_path: context.repo } });
     expect(valid.json().repository).toMatchObject({ canonicalPath: realpathSync.native(context.repo), directoryName: "sample-repo", isGitRepository: true, currentBranch: "feature/onboarding", commonFiles: ["README.md", "package.json"] });
-    expect((await context.app.inject({ method: "POST", url: "/api/projects/validate-path", payload: { repository_path: join(context.root, "missing") } })).statusCode).toBe(422);
+    const missing = await context.app.inject({ method: "POST", url: "/api/projects/validate-path", payload: { repository_path: join(context.root, "missing") } });
+    expect(missing.statusCode).toBe(422);
+    expect(missing.json()).toMatchObject({ error: { code: "filesystem_error", message: expect.stringContaining("does not exist") } });
     expect((await context.app.inject({ method: "POST", url: "/api/projects/validate-path", payload: { repository_path: join(context.repo, "README.md") } })).statusCode).toBe(422);
   });
 

@@ -5,6 +5,16 @@ import { ProviderAvailabilitySchema } from "../shared/providers.js";
 import { PlanProposalSchema, RunEventSchema, RunSchema, type Run } from "../shared/runs.js";
 import type { CreateProjectInput, JarvisClientService, JarvisSnapshot, RepositoryValidation, RunPresentation, UiWorkflowState, UpdateProjectInput } from "./service.js";
 import { ContextPacketSchema, type ContextPacket } from "../shared/context.js";
+import { API_SCHEMA_VERSION, FRONTEND_BUILD_ID, HealthResponseSchema, buildsCompatible, type HealthResponse } from "../shared/runtime.js";
+
+export type ClientErrorCategory = "api_unavailable" | "incompatible_api" | "route_missing" | "request_validation_failed" | "repository_unavailable" | "provider_unavailable" | "conflict" | "internal_error";
+
+export class JarvisClientError extends Error {
+  constructor(readonly category: ClientErrorCategory, message: string) { super(message); }
+}
+
+const unavailableMessage = "JARVIS is not running. Start it with npm run jarvis and reload this page.";
+const incompatibleMessage = "A different JARVIS version is currently running. Stop the existing instance, restart JARVIS, and reload this page.";
 
 const runEnvelopeSchema = z.object({ run: RunSchema, revisions: z.array(PlanProposalSchema), events: z.array(RunEventSchema).default([]) });
 const projectEnvelopeSchema = z.object({ project: ProjectSchema, activeRun: runEnvelopeSchema.nullable() });
@@ -56,6 +66,7 @@ export class HttpJarvisClientService implements JarvisClientService {
   private async performInitialization(): Promise<void> {
     this.patch({ hydrationStatus: "hydrating", error: null });
     try {
+      await this.requireCompatibleHealth();
       const [providers, projects] = await Promise.all([
         this.request("/api/setup/providers", undefined, z.object({ providers: z.array(ProviderAvailabilitySchema) })),
         this.request("/api/projects", undefined, z.object({ projects: z.array(ProjectSchema) })),
@@ -155,13 +166,53 @@ export class HttpJarvisClientService implements JarvisClientService {
   }
 
   private async request<T>(path: string, init: RequestInit | undefined, schema: z.ZodType<T>): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${path}`, { ...init, headers: { "content-type": "application/json", ...init?.headers } });
+    let response: Response;
+    try { response = await fetch(`${this.baseUrl}${path}`, { ...init, headers: { "content-type": "application/json", ...init?.headers } }); }
+    catch { throw new JarvisClientError("api_unavailable", unavailableMessage); }
     const body: unknown = await response.json().catch(() => null);
     if (!response.ok) {
-      const message = z.object({ error: z.object({ message: z.string() }) }).safeParse(body);
-      throw new Error(message.success ? message.data.error.message : `JARVIS API request failed (${response.status}).`);
+      if (response.status === 404) {
+        const health = await this.checkHealth();
+        if (health === null || !this.isCompatible(health)) throw new JarvisClientError("incompatible_api", incompatibleMessage);
+        throw new JarvisClientError("route_missing", `JARVIS route '${path}' is missing from a compatible API. Restart JARVIS; if the problem persists, review the local server logs.`);
+      }
+      const parsed = z.object({ error: z.object({ code: z.string().optional(), message: z.string() }) }).safeParse(body);
+      if (parsed.success) throw new JarvisClientError(this.mapErrorCategory(response.status, parsed.data.error.code), parsed.data.error.message);
+      throw new JarvisClientError("internal_error", `JARVIS could not complete this request (${response.status}).`);
     }
     return schema.parse(body);
+  }
+
+  private async requireCompatibleHealth(): Promise<void> {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const health = await this.checkHealth();
+      if (health === null) throw new JarvisClientError("incompatible_api", incompatibleMessage);
+      if (!this.isCompatible(health)) throw new JarvisClientError("incompatible_api", incompatibleMessage);
+      if (health.status === "ready") return;
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 250));
+    }
+    throw new JarvisClientError("api_unavailable", "JARVIS is still starting. Wait a moment, then reload this page.");
+  }
+
+  private async checkHealth(): Promise<HealthResponse | null> {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/health`, { headers: { accept: "application/json" } });
+      if (!response.ok) return null;
+      const parsed = HealthResponseSchema.safeParse(await response.json().catch(() => null));
+      return parsed.success ? parsed.data : null;
+    } catch { throw new JarvisClientError("api_unavailable", unavailableMessage); }
+  }
+
+  private isCompatible(health: HealthResponse): boolean {
+    return health.apiSchemaVersion === API_SCHEMA_VERSION && buildsCompatible(FRONTEND_BUILD_ID, health.buildId);
+  }
+
+  private mapErrorCategory(status: number, code?: string): ClientErrorCategory {
+    if (code === "validation_error") return "request_validation_failed";
+    if (code === "filesystem_error") return "repository_unavailable";
+    if (code === "provider_unavailable") return "provider_unavailable";
+    if (code === "conflict" || status === 409) return "conflict";
+    return "internal_error";
   }
 
   private watchRun(runId: string): void {
