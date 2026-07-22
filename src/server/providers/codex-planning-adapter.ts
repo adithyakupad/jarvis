@@ -11,6 +11,7 @@ import type {
 } from "../../shared/providers.js";
 import { detectCodex } from "./detection.js";
 import { NodeProcessRunner, type ProcessRunner } from "./process-runner.js";
+import { ProviderUnavailableError } from "./errors.js";
 
 const proposalBodySchema = PlanProposalFieldsSchema.omit({ revision: true, providerSessionId: true });
 
@@ -31,7 +32,7 @@ const proposalJsonSchema = {
   },
 } as const;
 
-export class ProviderUnavailableError extends Error {}
+export { ProviderUnavailableError } from "./errors.js";
 
 export function buildPlanningPrompt(input: InspectionRequest): string {
   const boundary = [

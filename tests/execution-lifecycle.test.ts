@@ -13,15 +13,16 @@ import { InvalidRunTransitionError, RunRepository } from "../src/server/reposito
 import { ExecutionFailedError, ExecutionService } from "../src/server/services/execution.js";
 import type { AgentAdapter, AgentEventHandler, ExecutionRequest, ExecutionResult, InspectionRequest, ProviderAvailability } from "../src/shared/providers.js";
 import type { PlanProposal } from "../src/shared/runs.js";
+import type { ProviderId } from "../src/shared/projects.js";
 
 const databases: JarvisDatabase[] = [];
 const apps: Array<ReturnType<typeof buildApi>> = [];
 
 class FakeAdapter implements AgentAdapter {
-  readonly id = "codex" as const;
+  readonly id: ProviderId;
   executeCalls = 0;
   request: ExecutionRequest | null = null;
-  constructor(private readonly behavior: "success" | "failure" | "touch-dirty" = "success") {}
+  constructor(private readonly behavior: "success" | "failure" | "touch-dirty" = "success", id: ProviderId = "codex") { this.id = id; }
   async detect(): Promise<ProviderAvailability> { return { provider: "codex", installed: true, authenticated: true, version: "fake", detail: "ready" }; }
   async inspect(_input: InspectionRequest): Promise<unknown> { throw new Error("not used"); }
   async execute(input: ExecutionRequest, onEvent: AgentEventHandler): Promise<ExecutionResult> {
@@ -48,15 +49,15 @@ class TestRunner implements ProcessRunner {
 
 function proposal(includeDirty = false): PlanProposal { return { objective: "Add multiplication", currentState: "src/math.ts exists.", steps: ["Add multiply"], expectedScope: includeDirty ? ["src/math.ts", "notes.txt"] : ["src/math.ts"], risks: [], completionTest: "Tests pass.", validationCommands: ["npm run test"], revision: 1, providerSessionId: "session-plan" }; }
 
-function fixture(behavior: "success" | "failure" | "touch-dirty" = "success", validationExitCode = 0) {
+function fixture(behavior: "success" | "failure" | "touch-dirty" = "success", validationExitCode = 0, provider: ProviderId = "codex") {
   const root = mkdtempSync(join(tmpdir(), "jarvis-execution-")); const repo = join(root, "repo"); mkdirSync(join(repo, "src"), { recursive: true });
   writeFileSync(join(repo, "src", "math.ts"), "export const add = (a: number, b: number) => a + b;\n");
   spawnSync("git", ["init"], { cwd: repo }); spawnSync("git", ["config", "user.email", "test@example.com"], { cwd: repo }); spawnSync("git", ["config", "user.name", "Test"], { cwd: repo }); spawnSync("git", ["add", "."], { cwd: repo }); spawnSync("git", ["commit", "-m", "initial"], { cwd: repo });
   const canonicalRepo = realpathSync.native(repo);
   const databasePath = join(root, "jarvis.db"); const database = openDatabase(databasePath); databases.push(database);
-  const projects = new ProjectRepository(database); projects.create({ id: "project", name: "Project", objective: "Test execution", repository_path: canonicalRepo, provider: "codex" });
-  const runs = new RunRepository(database); const run = runs.createInspection("project", "codex", "Add multiply"); runs.recordProposal(run.id, proposal(behavior === "touch-dirty"));
-  const adapter = new FakeAdapter(behavior); const runner = new TestRunner(validationExitCode); const registry = new AgentAdapterRegistry([adapter]);
+  const projects = new ProjectRepository(database); projects.create({ id: "project", name: "Project", objective: "Test execution", repository_path: canonicalRepo, provider });
+  const runs = new RunRepository(database); const run = runs.createInspection("project", provider, "Add multiply"); runs.recordProposal(run.id, proposal(behavior === "touch-dirty"));
+  const adapter = new FakeAdapter(behavior, provider); const runner = new TestRunner(validationExitCode); const registry = new AgentAdapterRegistry([adapter]);
   return { root, repo: canonicalRepo, databasePath, database, projects, runs, runId: run.id, adapter, runner, registry, execution: new ExecutionService(projects, runs, registry, runner) };
 }
 
@@ -83,6 +84,16 @@ describe("Gate 3 execution lifecycle", () => {
     const unapproved = fixture(); await expect(unapproved.execution.execute(unapproved.runId)).rejects.toThrow(InvalidRunTransitionError);
     const cancelled = fixture(); cancelled.runs.cancel(cancelled.runId); await expect(cancelled.execution.execute(cancelled.runId)).rejects.toThrow(InvalidRunTransitionError);
     expect(cancelled.adapter.executeCalls).toBe(0);
+  });
+
+  it("respects Claude provider selection without cross-provider fallback", async () => {
+    const context = fixture("success", 0, "claude-code"); const codex = new FakeAdapter("success", "codex"); context.runs.approve(context.runId, 1);
+    const execution = new ExecutionService(context.projects, context.runs, new AgentAdapterRegistry([context.adapter, codex]), context.runner);
+    await execution.execute(context.runId);
+    expect(context.adapter.executeCalls).toBe(1);
+    expect(codex.executeCalls).toBe(0);
+    expect(context.adapter.request).toMatchObject({ projectId: "project" });
+    expect(context.runs.require(context.runId).provider).toBe("claude-code");
   });
 
   it("persists snapshots and failure events when the provider fails", async () => {

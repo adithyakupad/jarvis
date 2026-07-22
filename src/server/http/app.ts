@@ -6,7 +6,7 @@ import { z, ZodError } from "zod";
 
 import type { JarvisDatabase } from "../database/connection.js";
 import { detectProviders } from "../providers/detection.js";
-import { ProviderUnavailableError } from "../providers/codex-planning-adapter.js";
+import { ProviderUnavailableError } from "../providers/errors.js";
 import { NodeProcessRunner, type ProcessRunner } from "../providers/process-runner.js";
 import { ProviderNotRegisteredError, AgentAdapterRegistry } from "../providers/registry.js";
 import { ProjectAlreadyExistsError, ProjectRepository } from "../repositories/projects.js";

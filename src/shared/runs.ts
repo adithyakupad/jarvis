@@ -64,7 +64,7 @@ export const RunSchema = z.object({
   approved_proposal_revision: z.number().int().positive().nullable(),
   approval_decision: ApprovalDecisionSchema.nullable(),
   status: RunStatusSchema,
-  failure: z.unknown().nullable(),
+  failure: z.object({ message: z.string() }).passthrough().nullable(),
   execution_result: ExecutionResultSchema.nullable().default(null),
   verification: VerificationSchema.nullable().default(null),
   pre_execution_snapshot: RepositorySnapshotSchema.nullable().default(null),

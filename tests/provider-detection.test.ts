@@ -77,7 +77,7 @@ describe("provider detection", () => {
       installed: false,
       authenticated: null,
       version: null,
-      detail: "Claude Code was not found.",
+      detail: "Claude Code executable is unavailable.",
     });
   });
 
@@ -86,6 +86,7 @@ describe("provider detection", () => {
       "codex --version": { exitCode: 0, stdout: "codex-cli 1.0", stderr: "" },
       "codex login status": { exitCode: 0, stdout: "Logged in", stderr: "" },
       "claude --version": { exitCode: 0, stdout: "2.1.0", stderr: "" },
+      "claude auth status --json": { exitCode: 0, stdout: '{"loggedIn":true}', stderr: "" },
     });
 
     const detected = await detectProviders(runner);
@@ -93,6 +94,11 @@ describe("provider detection", () => {
       "codex",
       "claude-code",
     ]);
-    expect(detected[1]).toMatchObject({ installed: true, version: "2.1.0" });
+    expect(detected[1]).toMatchObject({ installed: true, authenticated: true, version: "2.1.0" });
+  });
+
+  it("does not mark an installed but unauthenticated Claude executable ready", async () => {
+    const runner = new FakeRunner({ "claude --version": { exitCode: 0, stdout: "2.1.0", stderr: "" }, "claude auth status --json": { exitCode: 1, stdout: "", stderr: "Not logged in" } });
+    await expect(detectClaudeCode(runner)).resolves.toMatchObject({ installed: true, authenticated: false, detail: expect.stringContaining("authentication is unavailable") });
   });
 });

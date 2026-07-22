@@ -33,9 +33,9 @@ Gates 1, 2, 2.5, 2.6, 2.7, and 3 provide:
 - Explicit browser hydration that restores the selected project, run, proposal revisions, and Context Packet before the workspace becomes interactive.
 - Persistent user-supplied Context Packets and same-session context-aware replanning.
 - First-run provider readiness, local repository validation, read-only project profiling, and persisted project settings.
-- Exact-revision Codex execution, pre/post repository snapshots, normalized event streaming, approved-command verification, and project reconciliation.
+- Exact-revision Codex and Claude Code execution, pre/post repository snapshots, normalized event streaming, optional approved-command verification, and project reconciliation.
 
-The automated suite uses deterministic fake adapters. In real mode, Proceed seals the current proposal revision and executes it through the local Codex adapter. Claude Code execution remains Gate 4 work.
+The automated suite uses deterministic fake adapters. In real mode, Proceed seals the current proposal revision and executes it through the selected local provider. There is no cross-provider or mock fallback.
 
 The earlier Python implementation remains available until the TypeScript version reaches verified parity.
 
@@ -49,23 +49,30 @@ The browser cannot reliably provide a local server with an absolute folder path,
 
 - Node.js 22.12 or newer
 - npm
-- Codex and/or Claude Code installed for provider detection
+- Codex CLI installed and authenticated with `codex login`, and/or Claude Code installed and authenticated with `claude auth login`
 
 Python 3.12 is needed only for the temporary legacy implementation during migration.
 
-## Development startup
+## Install and start the local alpha
 
 Install dependencies and compile TypeScript:
 
 ```bash
 npm install
-npm run build
+npm run jarvis
+```
+
+Open `http://127.0.0.1:4173`. This builds JARVIS, starts the API and web interface together, and binds both to `127.0.0.1`. State is stored in `data/jarvis.db` by default. To isolate it:
+
+```bash
+JARVIS_DATA_DIR=/absolute/path/to/isolated-state npm run jarvis
 ```
 
 Detect installed providers:
 
 ```bash
-npm run jarvis -- provider detect
+npm run build
+npm run cli -- provider detect
 ```
 
 Run the Gate 1 checks:
@@ -75,7 +82,7 @@ npm test
 npm run typecheck
 ```
 
-## Run the Gate 2.5 interface
+## Development mode
 
 Install dependencies, then start the API and browser development server in two terminals:
 
@@ -90,9 +97,9 @@ npm run dev
 
 Open `http://127.0.0.1:4173`. The API binds only to `127.0.0.1:3000`, uses `data/jarvis.db` by default, and the Vite server proxies `/api` requests to it. Set `JARVIS_DATABASE_PATH` before `npm run dev:api` to use another database.
 
-SQLite and all JARVIS-owned project/run state live in that database. For an isolated installation or smoke test, use `JARVIS_DATABASE_PATH=/absolute/path/to/isolated/jarvis.db npm run dev:api`. Removing a project deletes its JARVIS record and planning history only; it never deletes or modifies the connected repository.
+SQLite and all JARVIS-owned project/run state live in that database. For an isolated installation or smoke test, use `JARVIS_DATABASE_PATH=/absolute/path/to/isolated/jarvis.db npm run dev:api`. Remove one project through **Edit project settings → Remove project**; this deletes only its JARVIS record and history. To remove all JARVIS state, stop JARVIS and delete the configured database or isolated data directory. Neither operation deletes a connected repository.
 
-Real mode detects local providers, loads projects from SQLite, asks authenticated Codex to inspect the selected repository read-only, persists proposal revisions and the Codex thread ID, and restores the latest project run after a browser reload. Revise plan resumes that same Codex thread. Proceed approves and executes only that persisted revision inside the canonical repository with workspace-write sandboxing, no network access, no elevated permissions, and no additional writable directories.
+Real mode detects local providers, loads projects from SQLite, and asks the selected provider to inspect the repository read-only. Codex uses the official SDK; Claude Code uses the authenticated local `claude` executable in noninteractive JSON mode. Both persist proposal revisions and provider session IDs. Proceed approves and executes only that persisted revision inside the canonical repository. Codex uses repository-scoped workspace-write sandboxing with networking disabled. Claude uses `acceptEdits` with only read and file-edit tools; it never uses `--dangerously-skip-permissions`.
 
 Before execution JARVIS persists branch, HEAD, Git status, dirty-file fingerprints, and the canonical path. After execution it captures the same evidence, labels newly dirty files as execution-window changes, and labels changed pre-existing dirty files as ambiguous. It never resets, cleans, stashes, commits, pushes, or discards work. A changed HEAD is treated as an execution failure.
 
@@ -106,7 +113,7 @@ Use **Revise plan** to correct, narrow, or redirect the existing proposal. Use *
 
 Gate 2.6 does not perform live web research. A provider-neutral `ResearchAdapter` boundary is reserved for future cited evidence, but no adapter is registered and Codex planning remains network-disabled.
 
-Codex planning is active when Setup reports Codex as detected and authenticated, a proposal cites details from the selected repository, and Run details shows a persisted provider session ID. Provider or server failures are shown as errors; there is no automatic mock fallback.
+A provider is selectable only when Setup reports it installed and authenticated. A grounded proposal must cite the selected repository, and Run details shows the selected provider and persisted session ID. Provider or server failures are shown honestly; selecting Claude never substitutes Codex, and selecting Codex never substitutes Claude.
 
 For explicit UI-only development with deterministic data:
 
@@ -120,14 +127,15 @@ Run all deterministic checks with `npm test`, `npm run typecheck`, and `npm run 
 
 ## Disposable execution smoke test
 
-Create a temporary Git repository with a tiny implementation and deterministic test, make an initial clean commit, and add its canonical path through onboarding using an isolated `JARVIS_DATABASE_PATH`. Ask for one narrowly scoped function and test, review that the proposal names only the disposable files and an exact validation command, then Proceed. Confirm the completed run and events restore after refresh, `git status` shows only the expected uncommitted changes, and `git log -1` is still the initial commit. Never use an important repository as the first write target.
+Create two temporary Git repositories with tiny implementation files and initial commits. Add one with Codex and one with Claude Code through onboarding using isolated state. Ask each to add a `multiply` function without committing or pushing. Review the exact scope, Proceed, refresh, and confirm the selected provider/session, completed or failed status, changed paths, and provider summary restore. Verify `git status` contains only expected uncommitted changes and `git log -1` is still the initial commit. Never use an important repository as the first write target.
+
+## Alpha limitations
+
+JARVIS is a local developer alpha: no voice, web research, remote execution, desktop packaging, background jobs, automatic commits, pushes, or reliable mid-execution cancellation. Codex and Claude expose different raw telemetry; JARVIS persists a smaller normalized event set. Validation runs only when a command was part of the approved proposal and passes the server allowlist. Otherwise the UI states: “Changes were applied. Automated validation was not run.”
 
 ## Planned v0.1 workflow
 
-Later approved gates add:
-
-1. Claude Code execution and session resumption.
-2. Interface parity and removal of the temporary Python baseline after verification.
+Later approved gates add interface parity, packaging, and removal of the temporary Python baseline after verification.
 
 Ollama, Whisper, voice, calendar, email, mobile apps, embeddings, and domain modules are not part of v0.1.
 

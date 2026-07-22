@@ -2,6 +2,7 @@ import {
   ProviderAvailabilitySchema,
   type ProviderAvailability,
 } from "../../shared/providers.js";
+import { z } from "zod";
 import type { ProcessRunner } from "./process-runner.js";
 
 function firstNonEmptyLine(value: string): string | null {
@@ -51,14 +52,21 @@ export async function detectClaudeCode(
 ): Promise<ProviderAvailability> {
   const result = await runner.run("claude", ["--version"]);
   const installed = result.exitCode === 0;
+  if (!installed) {
+    return ProviderAvailabilitySchema.parse({ provider: "claude-code", installed: false, authenticated: null, version: null, detail: result.exitCode === null ? "Claude Code executable is unavailable." : `Claude Code invocation failed: ${firstNonEmptyLine(result.stderr) ?? `exit ${result.exitCode}`}` });
+  }
+  const auth = await runner.run("claude", ["auth", "status", "--json"], { timeoutMs: 15_000 });
+  let authenticated = false;
+  if (auth.exitCode === 0) {
+    try { const parsed = z.object({ loggedIn: z.boolean().optional(), authenticated: z.boolean().optional() }).passthrough().parse(JSON.parse(auth.stdout)); authenticated = parsed.loggedIn ?? parsed.authenticated ?? true; }
+    catch { authenticated = /logged\s*in|authenticated/i.test(`${auth.stdout}\n${auth.stderr}`); }
+  }
   return ProviderAvailabilitySchema.parse({
     provider: "claude-code",
     installed,
-    authenticated: null,
+    authenticated,
     version: installed ? firstNonEmptyLine(result.stdout || result.stderr) : null,
-    detail: installed
-      ? "Claude Code is installed; authentication will be checked when execution is enabled."
-      : "Claude Code was not found.",
+    detail: authenticated ? "Claude Code is installed and authenticated." : `Claude Code is installed but authentication is unavailable${auth.stderr.trim() ? `: ${firstNonEmptyLine(auth.stderr)}` : "."}`,
   });
 }
 

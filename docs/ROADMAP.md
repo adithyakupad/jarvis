@@ -52,10 +52,10 @@
 
 ## Gate 4 — Claude Code
 
-- [ ] Constrained `stream-json` subprocess
-- [ ] Session persistence and resumption
-- [ ] Permission handling without bypass flags
-- [ ] Adapter conformance tests
+- [x] Constrained `stream-json` subprocess
+- [x] Session persistence and resumption
+- [x] Permission handling without bypass flags
+- [x] Adapter conformance tests
 - [ ] Run tests and commit the gate
 
 ## Gate 5 — Interface and parity

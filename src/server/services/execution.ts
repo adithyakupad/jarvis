@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 
 import type { ExecutionResultRecord, RepositorySnapshot, Verification } from "../../shared/runs.js";
 import { AgentAdapterRegistry } from "../providers/registry.js";
+import { ProviderUnavailableError } from "../providers/errors.js";
 import { NodeProcessRunner, type ProcessRunner } from "../providers/process-runner.js";
 import { ProjectRepository } from "../repositories/projects.js";
 import { InvalidRunTransitionError, RunRepository } from "../repositories/runs.js";
@@ -14,6 +15,13 @@ export class ExecutionFailedError extends Error {}
 
 const ALLOWED_VALIDATORS = new Set(["npm", "npx", "pnpm", "yarn", "node", "python", "python3", "pytest", "cargo", "go"]);
 const truncate = (text: string): string => text.length > 12_000 ? `${text.slice(0, 12_000)}\n[output truncated]` : text;
+function approvedPaths(scope: string[]): string[] {
+  return scope.flatMap((entry) => {
+    const quoted = [...entry.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
+    const candidates = quoted.length ? quoted : /^[A-Za-z0-9_./*?-]+$/.test(entry.trim()) ? [entry.trim()] : [];
+    return candidates.map((candidate) => candidate.replace(/^\.\//, "").replace(/\*.*$/, "")).filter((candidate) => candidate && !candidate.includes(" "));
+  });
+}
 
 export class ExecutionService {
   private readonly active = new Set<string>();
@@ -44,7 +52,8 @@ export class ExecutionService {
       const post = await this.snapshot(canonical);
       if (pre.head !== post.head) throw new ExecutionFailedError("Repository HEAD changed during execution; Gate 3 does not authorize commits.");
       const attribution = this.attribute(pre, post);
-      const outsideScope = attribution.changedFiles.filter((file) => !initial.proposal!.expectedScope.some((scope) => { const normalized = scope.replace(/^\.\//, "").replace(/\*.*$/, ""); return file === normalized || file.startsWith(normalized.endsWith("/") ? normalized : `${normalized}/`); }));
+      const allowedPaths = approvedPaths(initial.proposal.expectedScope);
+      const outsideScope = attribution.changedFiles.filter((file) => !allowedPaths.some((normalized) => file === normalized || file.startsWith(normalized.endsWith("/") ? normalized : `${normalized}/`)));
       if (outsideScope.length) throw new ExecutionFailedError(`Execution changed files outside the approved scope: ${outsideScope.join(", ")}`);
       const verification = await this.verify(runId, canonical, initial.proposal.validationCommands);
       lastVerification = verification;
@@ -57,6 +66,7 @@ export class ExecutionService {
     } catch (error) {
       const post = await this.snapshot(canonical).catch(() => undefined);
       this.runs.failExecution(runId, error, post, lastVerification);
+      if (error instanceof ProviderUnavailableError) throw error;
       throw new ExecutionFailedError(error instanceof Error ? error.message : "Execution failed.");
     } finally { this.active.delete(runId); }
   }
@@ -102,6 +112,6 @@ export class ExecutionService {
       checks.push(check);
       this.runs.recordExecutionEvent(runId, "command_completed", check);
     }
-    return { repositoryValid: canonicalizeRepositoryPath(path) === path, message: commands.length ? "Approved validation commands completed." : "Execution finished, but automated validation was not available.", checks };
+    return { repositoryValid: canonicalizeRepositoryPath(path) === path, message: commands.length ? "Approved validation commands completed." : "Changes were applied. Automated validation was not run.", checks };
   }
 }
