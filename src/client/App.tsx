@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import type { Project } from "../shared/projects.js";
 import type { PlanProposal } from "../shared/runs.js";
 import { ContextPacketSchema } from "../shared/context.js";
+import type { HandoffCorrections, ProjectHandoff } from "../shared/handoffs.js";
 import { useJarvisService, useJarvisSnapshot } from "./runtime.js";
 import type { RunPresentation, UiWorkflowState } from "./service.js";
 
@@ -138,9 +139,62 @@ function ContextReplanForm({ presentation, busy, error, onBack, onInvalid, onSub
   </form>;
 }
 
+function HandoffCard({ projectId, handoff, updating, onUseNextStep }: { projectId: string; handoff: ProjectHandoff | null; updating: boolean; onUseNextStep: (instruction: string) => void }): ReactNode {
+  const service = useJarvisService();
+  const [correcting, setCorrecting] = useState(false);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (!handoff) return <section className="surface handoff-card"><div className="section-kicker">Where we left off</div><p>{updating ? "Updating project state…" : "JARVIS will summarize where this project stands after the first terminal run."}</p></section>;
+  const validationTitle = {
+    passed: "Tests passed",
+    failed: "Tests failed",
+    timed_out: "Tests timed out",
+    invocation_failed: "Test runner unavailable",
+    not_supported: "No supported automated tests detected",
+    pending: "Validation pending",
+    running: "Validation running",
+  }[handoff.validationSummary.status] ?? handoff.validationSummary.status.replaceAll("_", " ");
+  const save = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const list = (name: string): string[] | undefined => {
+      const values = String(data.get(name) ?? "").split("\n").map((item) => item.trim()).filter(Boolean);
+      return values.length ? values : undefined;
+    };
+    const text = (name: string): string | undefined => String(data.get(name) ?? "").trim() || undefined;
+    const corrections: HandoffCorrections = {
+      currentObjective: text("currentObjective"),
+      currentStatus: text("currentStatus"),
+      blockers: list("blockers"),
+      openDecisions: list("openDecisions"),
+      activeConstraints: list("activeConstraints"),
+      recommendedNextAction: text("recommendedNextAction"),
+    };
+    setBusy(true); setMessage("");
+    try { await service.correctHandoff(projectId, corrections); setCorrecting(false); setMessage("Project-state correction saved as user-provided context."); }
+    catch (cause) { setMessage(cause instanceof Error ? cause.message : "The correction could not be saved."); }
+    finally { setBusy(false); }
+  };
+  return <section className="surface handoff-card" aria-labelledby="handoff-title">
+    <header className="split"><div><div className="section-kicker">Where we left off</div><h2 id="handoff-title">{handoff.currentStatus}</h2></div><span className={`status-pill status-${handoff.freshnessStatus === "current" ? "completed" : "warning"}`}>{handoff.freshnessStatus.replaceAll("_", " ").toUpperCase()}</span></header>
+    {(updating || handoff.generationStatus === "pending") && <p role="status">Updating project state…</p>}
+    {handoff.generationStatus === "deterministic_fallback" && <p className="inline-error">JARVIS preserved the verified run result, but the project summary could not be fully updated.</p>}
+    {handoff.freshnessStatus === "potentially_stale" && <p className="inline-error">Repository changes were detected after this handoff was created. JARVIS will inspect the current repository before relying on this state.</p>}
+    <div className="handoff-grid"><div><strong>Current objective</strong><p>{handoff.currentObjective}</p></div><div><strong>Last meaningful action</strong><p>{handoff.lastMeaningfulAction}</p></div><div><strong>Last run outcome</strong><p>{handoff.lastRunOutcome}</p></div><div><strong>Independent validation</strong><p>{validationTitle}</p></div><div><strong>Repository condition</strong><p>{handoff.repositorySummary.isGitRepository ? `${handoff.repositorySummary.dirtyPaths.length} visible changed path(s)` : "Non-Git repository; freshness is conservative"}</p></div><div><strong>Recommended next action</strong><p>{handoff.recommendedNextAction}</p></div></div>
+    {handoff.changedFiles.length > 0 && <><strong>Changed files</strong><ul className="scope-list">{handoff.changedFiles.map((file) => <li className="mono" key={file}>{file}</li>)}</ul></>}
+    {handoff.blockers.length > 0 && <><strong>Blockers</strong><ul>{handoff.blockers.map((item) => <li key={item}>{item}</li>)}</ul></>}
+    {handoff.openDecisions.length > 0 && <><strong>Open decisions</strong><ul>{handoff.openDecisions.map((item) => <li key={item}>{item}</li>)}</ul></>}
+    {handoff.activeConstraints.length > 0 && <><strong>Active constraints</strong><ul>{handoff.activeConstraints.map((item) => <li key={item}>{item}</li>)}</ul></>}
+    <div className="button-group"><button className="button secondary" onClick={() => onUseNextStep(handoff.recommendedNextAction)}>Use recommended next step</button><button className="button ghost" onClick={() => setCorrecting((value) => !value)}>Correct project state</button></div>
+    {correcting && <form className="handoff-corrections" onSubmit={(event) => void save(event)}><p className="quiet">Corrections override narrative inference, remain auditable, and cannot change repository or validation evidence.</p><label>Current objective<textarea name="currentObjective" rows={2} /></label><label>Current status<textarea name="currentStatus" rows={2} /></label><label>Blockers <small>One per line</small><textarea name="blockers" rows={2} /></label><label>Open decisions <small>One per line</small><textarea name="openDecisions" rows={2} /></label><label>Active constraints <small>One per line</small><textarea name="activeConstraints" rows={2} /></label><label>Recommended next action<textarea name="recommendedNextAction" rows={2} /></label><button className="button primary" disabled={busy}>{busy ? "Saving…" : "Save correction"}</button></form>}
+    {message && <p role="status" className="quiet">{message}</p>}
+    <details><summary>Evidence and diagnostics</summary><p><strong>Source run:</strong> <span className="mono">{handoff.lastRunId}</span></p><p><strong>Updated:</strong> <time dateTime={handoff.generatedAt}>{new Date(handoff.generatedAt).toLocaleString()}</time></p>{handoff.evidenceEntries.map((entry, index) => <p key={`${entry.timestamp}-${index}`}><strong>{entry.category.replaceAll("_", " ")}:</strong> {entry.summary}</p>)}{handoff.diagnostics.map((item) => <p className="quiet" key={item}>{item}</p>)}</details>
+  </section>;
+}
+
 function WorkspaceView({ project, onRunDetails }: { project: Project; onRunDetails: () => void }): ReactNode {
   const service = useJarvisService();
-  const { activeRun } = useJarvisSnapshot();
+  const { activeRun, activeHandoff, handoffUpdating } = useJarvisSnapshot();
   const [instruction, setInstruction] = useState("");
   const [modifying, setModifying] = useState(false);
   const [addingContext, setAddingContext] = useState(false);
@@ -159,10 +213,12 @@ function WorkspaceView({ project, onRunDetails }: { project: Project; onRunDetai
       if (modifying) return <article className="active-object modify-object"><p className="eyebrow">Revise plan / Same run · Revision {activeRun.run.proposal_revision}</p><h2>Refine the proposal boundary.</h2><p>The current proposal remains preserved. Submitting creates revision {activeRun.run.proposal_revision + 1} in this run and keeps the provider session.</p><label htmlFor="modification">Requested change</label><textarea id="modification" value={modification} onChange={(event) => setModification(event.target.value)} rows={4} autoFocus /><div className="button-group"><button className="button ghost" onClick={() => setModifying(false)}>Back</button><button className="button primary" onClick={() => void invoke(async () => { await service.modify(activeRun.run.id, activeRun.run.proposal_revision, modification); setModifying(false); })}>Create revision {activeRun.run.proposal_revision + 1}</button></div></article>;
       return <ProposalReview presentation={activeRun} error={error} onModify={() => setModifying(true)} onContext={() => setAddingContext(true)} onCancel={() => void invoke(() => service.cancel(activeRun.run.id))} onProceed={(revision) => void invoke(() => service.proceed(activeRun.run.id, revision))} />;
     }
-    return <ActivityObject run={activeRun} onDetails={onRunDetails} onCancel={() => void invoke(() => service.cancelExecution(activeRun.run.id))} />;
+    const activity = <ActivityObject run={activeRun} onDetails={onRunDetails} onCancel={() => void invoke(() => service.cancelExecution(activeRun.run.id))} />;
+    if (!["completed", "failed", "cancelled", "cancelled_before_execution"].includes(activeRun.state)) return activity;
+    return <>{activity}<article className="active-object instruction-object"><p className="eyebrow">Next task / read-only planning first</p><h2>What should JARVIS do next?</h2><label htmlFor="next-instruction">Task instruction</label><textarea id="next-instruction" value={instruction} onChange={(event) => setInstruction(event.target.value)} rows={4} placeholder="Describe the next bounded change." />{error && <p className="inline-error" role="alert">{error}</p>}<div className="instruction-footer"><span><i aria-hidden="true" /> Planning is read-only</span><button className="button primary" onClick={() => void invoke(() => service.inspect(project.id, instruction))}>Inspect and propose</button></div></article></>;
   }
 
-  return <section className="view workspace-view" aria-labelledby="workspace-title"><header className="workspace-header"><div><p className="eyebrow">Project workspace</p><h1 id="workspace-title" ref={headingRef} tabIndex={-1}>{project.name}</h1></div><div className="workspace-state"><span>Current state</span><strong>{activeRun ? stateLabel(activeRun.state) : "IDLE"}</strong></div></header><p className="sr-only" role="status" aria-live="polite">{activeRun?.statusMessage || "Project is idle and ready for an instruction."}</p><div className="workspace-grid"><ProjectContext project={project} /><div className="center-stage">{center()}</div><aside className="evidence-rail" aria-label="Current context"><p className="rail-label">Context / now</p>{activeRun ? <><dl><div><dt>Run</dt><dd className="mono">{activeRun.run.id}</dd></div><div><dt>Proposal</dt><dd>Revision {activeRun.run.proposal_revision || "—"}</dd></div><div><dt>Approved</dt><dd>{activeRun.run.approved_proposal_revision ? `Revision ${activeRun.run.approved_proposal_revision}` : "Not yet"}</dd></div><div><dt>Session</dt><dd className="mono">{activeRun.run.provider_session_id || "Pending"}</dd></div></dl>{activeRun.revisions.length > 1 && <div className="revision-stack"><span>Revision history</span>{activeRun.revisions.map((item) => <b key={item.revision}>REV {item.revision}{item.revision === activeRun.run.proposal_revision ? " / CURRENT" : " / SUPERSEDED"}</b>)}</div>}</> : <p className="quiet">Project context will remain peripheral until inspection produces a decision.</p>}</aside></div></section>;
+  return <section className="view workspace-view" aria-labelledby="workspace-title"><header className="workspace-header"><div><p className="eyebrow">Project workspace</p><h1 id="workspace-title" ref={headingRef} tabIndex={-1}>{project.name}</h1></div><div className="workspace-state"><span>Current state</span><strong>{activeRun ? stateLabel(activeRun.state) : "IDLE"}</strong></div></header><p className="sr-only" role="status" aria-live="polite">{activeRun?.statusMessage || "Project is idle and ready for an instruction."}</p><HandoffCard projectId={project.id} handoff={activeHandoff} updating={handoffUpdating} onUseNextStep={(next) => setInstruction(next)} /><div className="workspace-grid"><ProjectContext project={project} /><div className="center-stage">{center()}</div><aside className="evidence-rail" aria-label="Current context"><p className="rail-label">Context / now</p>{activeRun ? <><dl><div><dt>Run</dt><dd className="mono">{activeRun.run.id}</dd></div><div><dt>Proposal</dt><dd>Revision {activeRun.run.proposal_revision || "—"}</dd></div><div><dt>Approved</dt><dd>{activeRun.run.approved_proposal_revision ? `Revision ${activeRun.run.approved_proposal_revision}` : "Not yet"}</dd></div><div><dt>Session</dt><dd className="mono">{activeRun.run.provider_session_id || "Pending"}</dd></div></dl>{activeRun.revisions.length > 1 && <div className="revision-stack"><span>Revision history</span>{activeRun.revisions.map((item) => <b key={item.revision}>REV {item.revision}{item.revision === activeRun.run.proposal_revision ? " / CURRENT" : " / SUPERSEDED"}</b>)}</div>}</> : <p className="quiet">Project context will remain peripheral until inspection produces a decision.</p>}</aside></div></section>;
 }
 
 function ValidationEvidence({ verification }: { verification: NonNullable<RunPresentation["run"]["verification"]> }): ReactNode {

@@ -175,6 +175,14 @@ dd { margin: 0; color: var(--muted); font-size: .72rem; line-height: 1.5; overfl
 .run-proposal h2 { font-size: 1.25rem; }
 .run-proposal p { color: var(--muted); font-size: .78rem; }
 .empty-run { max-width: 760px; margin: 0; }
+.handoff-card { margin: 1rem 0; }
+.handoff-card h2 { margin: .35rem 0 0; font-size: 1.25rem; }
+.handoff-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 1rem; margin: 1rem 0; }
+.handoff-grid > div { border-top: 1px solid var(--line); padding-top: .75rem; }
+.handoff-grid strong, .handoff-card > strong { color: var(--cyan-2); font: 500 .6rem IBM Plex Mono, monospace; text-transform: uppercase; letter-spacing: .08em; }
+.handoff-grid p { color: var(--muted); font-size: .75rem; line-height: 1.55; }
+.handoff-corrections { border-top: 1px solid var(--line); margin-top: 1rem; padding-top: 1rem; display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; }
+.handoff-corrections > p, .handoff-corrections > button { grid-column: 1 / -1; }
 
 @media (max-width: 1100px) {
   .workspace-grid { grid-template-columns: 190px minmax(0, 1fr); }
@@ -194,6 +202,7 @@ dd { margin: 0; color: var(--muted); font-size: .72rem; line-height: 1.5; overfl
   .project-card { grid-template-columns: 32px 1fr; }
   .project-next { grid-column: 2; border-left: 0; border-top: 1px solid var(--line); padding: .8rem 0 0; margin-top: .8rem; }
   .setup-grid, .workspace-grid, .run-grid { grid-template-columns: 1fr; }
+  .handoff-grid, .handoff-corrections { grid-template-columns: 1fr; }
   .context-rail { border-bottom: 1px solid var(--line); padding-bottom: 1rem; }
   .evidence-rail { grid-column: 1; grid-template-columns: 1fr; }
   .proposal-grid { grid-template-columns: 1fr; }

@@ -18,6 +18,9 @@ import { inspectRepositoryPath, InvalidRepositoryPathError } from "../security/r
 import { ContextPacketFieldsSchema, ContextPacketSchema } from "../../shared/context.js";
 import type { PlanProposal, Run } from "../../shared/runs.js";
 import { API_SCHEMA_VERSION, DEVELOPMENT_BUILD_ID, HealthResponseSchema, type HealthResponse } from "../../shared/runtime.js";
+import { HandoffCorrectionsSchema } from "../../shared/handoffs.js";
+import { HandoffRepository, HandoffUnavailableError } from "../repositories/handoffs.js";
+import { HandoffService } from "../services/handoffs.js";
 
 const packageVersion = z.object({ version: z.string().min(1) }).parse(JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8"))).version;
 
@@ -42,19 +45,24 @@ export interface ApiDependencies {
   schedule?: (task: () => Promise<void>) => void;
   runtime?: Partial<HealthResponse>;
   publicDirectory?: string;
+  reconcileHandoffs?: boolean;
 }
 
 function runResponse(runs: RunRepository, runId: string): { run: Run; revisions: PlanProposal[]; events: ReturnType<RunRepository["events"]> } {
   return { run: runs.require(runId), revisions: runs.proposalRevisions(runId), events: runs.events(runId) };
 }
 
-export function buildApi({ database, adapters, processRunner = new NodeProcessRunner(), schedule = (task) => { setImmediate(() => void task().catch(() => undefined)); }, runtime = {}, publicDirectory }: ApiDependencies): FastifyInstance {
+export function buildApi({ database, adapters, processRunner = new NodeProcessRunner(), schedule = (task) => { setImmediate(() => void task().catch(() => undefined)); }, runtime = {}, publicDirectory, reconcileHandoffs = false }: ApiDependencies): FastifyInstance {
   const app = Fastify({ logger: false });
   const projects = new ProjectRepository(database);
   const runs = new RunRepository(database);
-  const planning = new PlanningService(projects, runs, adapters, processRunner);
-  const execution = new ExecutionService(projects, runs, adapters, processRunner);
+  const handoffRepository = new HandoffRepository(database);
+  const handoffs = new HandoffService(projects, runs, handoffRepository, adapters, processRunner);
+  const updateHandoff = (runId: string): void => schedule(() => handoffs.updateForRun(runId).then(() => undefined));
+  const planning = new PlanningService(projects, runs, adapters, processRunner, handoffs, updateHandoff);
+  const execution = new ExecutionService(projects, runs, adapters, processRunner, undefined, updateHandoff);
   const health = HealthResponseSchema.parse({ status: "ready", appVersion: packageVersion, apiSchemaVersion: API_SCHEMA_VERSION, buildId: DEVELOPMENT_BUILD_ID, processId: process.pid, startedAt: new Date().toISOString(), bindHost: "127.0.0.1", port: 3000, ...runtime });
+  if (reconcileHandoffs) schedule(() => handoffs.reconcileMissing().then(() => undefined));
 
   app.get("/api/health", async () => health);
   if (publicDirectory) {
@@ -102,7 +110,19 @@ export function buildApi({ database, adapters, processRunner = new NodeProcessRu
     const project = projects.get(projectId);
     if (!project) throw new ProjectNotFoundError(`Project '${projectId}' was not found.`);
     const latestRun = runs.latestForProject(projectId);
-    return { project, activeRun: latestRun ? runResponse(runs, latestRun.id) : null };
+    return { project, handoff: await handoffs.current(projectId), activeRun: latestRun ? runResponse(runs, latestRun.id) : null };
+  });
+  app.get("/api/projects/:projectId/handoff", async (request) => {
+    const { projectId } = idParams.parse(request.params);
+    if (!projects.get(projectId)) throw new ProjectNotFoundError(`Project '${projectId}' was not found.`);
+    const handoff = await handoffs.current(projectId);
+    if (!handoff) throw new HandoffUnavailableError(`No project handoff is available for '${projectId}'.`);
+    return { handoff };
+  });
+  app.patch("/api/projects/:projectId/handoff/corrections", async (request) => {
+    const { projectId } = idParams.parse(request.params);
+    if (!projects.get(projectId)) throw new ProjectNotFoundError(`Project '${projectId}' was not found.`);
+    return { handoff: await handoffs.correct(projectId, HandoffCorrectionsSchema.parse(request.body)) };
   });
   app.patch("/api/projects/:projectId", async (request) => {
     const { projectId } = idParams.parse(request.params);
@@ -166,6 +186,7 @@ export function buildApi({ database, adapters, processRunner = new NodeProcessRu
   app.post("/api/runs/:runId/cancel", async (request) => {
     const { runId } = runParams.parse(request.params);
     planning.cancel(runId);
+    updateHandoff(runId);
     return runResponse(runs, runId);
   });
   app.post("/api/runs/:runId/context", async (request) => {
@@ -180,6 +201,7 @@ export function buildApi({ database, adapters, processRunner = new NodeProcessRu
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof ZodError) return reply.code(400).send({ error: { code: "validation_error", message: "Request validation failed.", issues: error.issues } });
     if (error instanceof InvalidRepositoryPathError) return reply.code(422).send({ error: { code: "filesystem_error", message: error.message } });
+    if (error instanceof HandoffUnavailableError) return reply.code(404).send({ error: { code: "handoff_unavailable", message: error.message } });
     if (error instanceof RepositoryIdentityError) return reply.code(409).send({ error: { code: "repository_identity_error", message: error.message } });
     if (error instanceof ExecutionFailedError) return reply.code(502).send({ error: { code: "execution_failure", message: error.message } });
     if (error instanceof ProjectNotFoundError || error instanceof RunNotFoundError) return reply.code(404).send({ error: { code: "not_found", message: error.message } });

@@ -4,6 +4,7 @@ import type { ProviderId } from "./projects.js";
 import type { PlanProposal } from "./runs.js";
 import type { ProjectProfile } from "./projects.js";
 import type { ContextPacket } from "./context.js";
+import type { HandoffNarrative, ProjectHandoff, StoredHandoffCorrections } from "./handoffs.js";
 
 export const ProviderAvailabilitySchema = z.object({
   provider: z.enum(["codex", "claude-code"]),
@@ -26,6 +27,20 @@ export interface InspectionRequest {
   modification: string | null;
   contextPacket: ContextPacket | null;
   repositoryCacheHit?: boolean;
+  providerReadinessVerified?: true;
+  projectHandoff?: ProjectHandoff | null;
+}
+
+export interface HandoffGenerationRequest {
+  projectId: string;
+  repositoryPath: string;
+  providerSessionId: string | null;
+  priorHandoff: ProjectHandoff | null;
+  currentRun: import("./runs.js").Run;
+  currentProjectProfile: ProjectProfile | null;
+  userCorrections: StoredHandoffCorrections | null;
+  deterministicEvidence: Record<string, unknown>;
+  readOnly: true;
   providerReadinessVerified?: true;
 }
 
@@ -61,6 +76,7 @@ export interface AgentAdapter {
   readonly id: ProviderId;
   detect(): Promise<ProviderAvailability>;
   inspect(input: InspectionRequest): Promise<unknown>;
+  generateHandoff?(input: HandoffGenerationRequest): Promise<HandoffNarrative | unknown>;
   execute(
     input: ExecutionRequest,
     onEvent: AgentEventHandler,

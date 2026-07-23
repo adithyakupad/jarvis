@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { ClaudeCodeAdapter } from "../src/server/providers/claude-code-adapter.js";
 import type { ProcessRunOptions, ProcessRunner, ProcessResult } from "../src/server/providers/process-runner.js";
-import type { ExecutionRequest, InspectionRequest } from "../src/shared/providers.js";
-import type { PlanProposal } from "../src/shared/runs.js";
+import type { ExecutionRequest, HandoffGenerationRequest, InspectionRequest } from "../src/shared/providers.js";
+import { RunSchema, type PlanProposal } from "../src/shared/runs.js";
 
 class FakeRunner implements ProcessRunner {
   readonly calls: Array<{ executable: string; args: readonly string[]; options?: ProcessRunOptions }> = [];
@@ -47,5 +47,19 @@ describe("Claude Code adapter", () => {
     const runner = new FakeRunner([...availability, { exitCode: 7, stdout: "", stderr: "authentication expired" }]);
     const request: ExecutionRequest = { projectId: "p", repositoryPath: "/tmp/repo", instruction: "Add multiply", proposal: { ...proposal, revision: 1, providerSessionId: null }, providerSessionId: null, approvedRevision: 1, contextPacket: null, projectProfile: null, allowedScope: ["math.js"] };
     await expect(new ClaudeCodeAdapter(runner).execute(request, () => undefined)).rejects.toThrow("Claude Code execution failed (7): authentication expired");
+  });
+
+  it("generates handoffs read-only through the same provider session", async () => {
+    const narrative = { currentObjective: "Ship arithmetic", currentStatus: "Multiply is ready", lastMeaningfulAction: "Added multiply", blockers: [], openDecisions: [], activeConstraints: ["Do not commit"], recommendedNextAction: "Document multiply", inferredEvidence: [] };
+    const runner = new FakeRunner([{ exitCode: 0, stdout: JSON.stringify({ session_id: "claude-session", structured_output: narrative }), stderr: "" }]);
+    const request: HandoffGenerationRequest = {
+      projectId: "p", repositoryPath: "/tmp/repo", providerSessionId: "claude-session", priorHandoff: null,
+      currentRun: RunSchema.parse({ id: "run", project_id: "p", provider: "claude-code", provider_session_id: "claude-session", instruction: "Add multiply", proposal: { ...proposal, revision: 1, providerSessionId: "claude-session" }, proposal_revision: 1, approved_proposal_revision: 1, approval_decision: "proceed", status: "completed", failure: null, created_at: "2026-07-23T12:00:00.000Z", completed_at: "2026-07-23T12:01:00.000Z" }),
+      currentProjectProfile: null, userCorrections: null, deterministicEvidence: { changedFiles: ["math.js"] }, readOnly: true, providerReadinessVerified: true,
+    };
+    expect(await new ClaudeCodeAdapter(runner).generateHandoff(request)).toEqual(narrative);
+    expect(runner.calls[0]).toMatchObject({ executable: "claude", options: { cwd: "/tmp/repo", timeoutMs: 120000 } });
+    expect(runner.calls[0].args).toEqual(expect.arrayContaining(["--permission-mode", "plan", "--allowedTools", "Read", "Glob", "Grep", "--resume", "claude-session"]));
+    expect(runner.calls[0].args).not.toEqual(expect.arrayContaining(["Edit", "Write", "--dangerously-skip-permissions"]));
   });
 });

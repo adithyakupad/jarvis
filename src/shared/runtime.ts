@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const API_SCHEMA_VERSION = 1;
+export const API_SCHEMA_VERSION = 2;
 export const DEVELOPMENT_BUILD_ID = "development";
 export const HealthStatusSchema = z.enum(["starting", "ready"]);
 export const HealthResponseSchema = z.object({

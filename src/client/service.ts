@@ -2,6 +2,7 @@ import type { Project, ProviderId } from "../shared/projects.js";
 import type { ProviderAvailability } from "../shared/providers.js";
 import type { PlanProposal, Run } from "../shared/runs.js";
 import type { ContextPacket } from "../shared/context.js";
+import type { HandoffCorrections, ProjectHandoff } from "../shared/handoffs.js";
 
 export type UiWorkflowState =
   | "idle"
@@ -56,6 +57,8 @@ export interface JarvisSnapshot {
   hydrationStatus: "not_initialized" | "hydrating" | "ready" | "failed";
   projectLoading: boolean;
   selectedProjectId: string | null;
+  activeHandoff: ProjectHandoff | null;
+  handoffUpdating: boolean;
 }
 
 export interface CreateProjectInput {
@@ -86,6 +89,7 @@ export interface JarvisClientService {
   proceed(runId: string, revision: number): Promise<RunPresentation>;
   cancel(runId: string): Promise<RunPresentation>;
   cancelExecution(runId: string): Promise<RunPresentation>;
+  correctHandoff(projectId: string, corrections: HandoffCorrections): Promise<ProjectHandoff>;
   resetDemo(projectId: string): Promise<void>;
   demonstrateMalformedProposal(projectId: string): Promise<RunPresentation>;
 }

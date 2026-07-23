@@ -42,7 +42,7 @@ describe("local runtime integrity", () => {
   });
 
   it("blocks incompatible JARVIS and unknown live processes without terminating them", async () => {
-    for (const probe of [{ kind: "jarvis", health: { ...ready, apiSchemaVersion: 2 } }, { kind: "unknown" }] as HealthProbe[]) {
+    for (const probe of [{ kind: "jarvis", health: { ...ready, apiSchemaVersion: API_SCHEMA_VERSION + 1 } }, { kind: "unknown" }] as HealthProbe[]) {
       const root = directory(); writeFileSync(join(root, INSTANCE_LOCK_NAME), JSON.stringify({ ...desired, pid: 77, startedAt: ready.startedAt }));
       await expect(acquireInstance(root, desired, { isProcessAlive: () => true, probe: async () => probe })).rejects.toBeInstanceOf(RuntimeConflictError);
       expect(existsSync(join(root, INSTANCE_LOCK_NAME))).toBe(true);

@@ -6,6 +6,7 @@ import { PlanProposalSchema, RunEventSchema, RunSchema, type Run } from "../shar
 import type { CreateProjectInput, JarvisClientService, JarvisSnapshot, RepositoryValidation, RunPresentation, UiWorkflowState, UpdateProjectInput } from "./service.js";
 import { ContextPacketSchema, type ContextPacket } from "../shared/context.js";
 import { API_SCHEMA_VERSION, FRONTEND_BUILD_ID, HealthResponseSchema, buildsCompatible, type HealthResponse } from "../shared/runtime.js";
+import { HandoffCorrectionsSchema, ProjectHandoffSchema, type HandoffCorrections, type ProjectHandoff } from "../shared/handoffs.js";
 
 export type ClientErrorCategory = "api_unavailable" | "incompatible_api" | "route_missing" | "request_validation_failed" | "repository_unavailable" | "provider_unavailable" | "conflict" | "internal_error";
 
@@ -17,7 +18,7 @@ const unavailableMessage = "JARVIS is not running. Start it with npm run jarvis 
 const incompatibleMessage = "A different JARVIS version is currently running. Stop the existing instance, restart JARVIS, and reload this page.";
 
 const runEnvelopeSchema = z.object({ run: RunSchema, revisions: z.array(PlanProposalSchema), events: z.array(RunEventSchema).default([]) });
-const projectEnvelopeSchema = z.object({ project: ProjectSchema, activeRun: runEnvelopeSchema.nullable() });
+const projectEnvelopeSchema = z.object({ project: ProjectSchema, handoff: ProjectHandoffSchema.nullable().default(null), activeRun: runEnvelopeSchema.nullable() });
 const contextEnvelopeSchema = runEnvelopeSchema.extend({ contextPacket: ContextPacketSchema, currentProposal: PlanProposalSchema });
 
 function stateFor(run: Run): UiWorkflowState {
@@ -48,7 +49,7 @@ function present(envelope: z.infer<typeof runEnvelopeSchema>): RunPresentation {
 }
 
 export class HttpJarvisClientService implements JarvisClientService {
-  private snapshot: JarvisSnapshot = { projects: [], providers: [], activeRun: null, error: null, hydrationStatus: "not_initialized", projectLoading: false, selectedProjectId: null };
+  private snapshot: JarvisSnapshot = { projects: [], providers: [], activeRun: null, activeHandoff: null, handoffUpdating: false, error: null, hydrationStatus: "not_initialized", projectLoading: false, selectedProjectId: null };
   private readonly listeners = new Set<(snapshot: JarvisSnapshot) => void>();
   private initializationPromise: Promise<void> | null = null;
   private readonly activeStreams = new Map<string, () => void>();
@@ -105,7 +106,7 @@ export class HttpJarvisClientService implements JarvisClientService {
     if (!response.ok) throw new Error("Project removal failed.");
     const projects = this.snapshot.projects.filter((project) => project.id !== projectId);
     window.localStorage.removeItem("jarvis.activeProjectId");
-    this.patch({ projects, selectedProjectId: null, activeRun: null, error: null });
+    this.patch({ projects, selectedProjectId: null, activeRun: null, activeHandoff: null, handoffUpdating: false, error: null });
     if (projects[0]) await this.selectProject(projects[0].id);
   }
 
@@ -114,7 +115,7 @@ export class HttpJarvisClientService implements JarvisClientService {
     try {
       const result = await this.request(`/api/projects/${encodeURIComponent(projectId)}`, undefined, projectEnvelopeSchema);
       window.localStorage.setItem("jarvis.activeProjectId", projectId);
-      this.patch({ selectedProjectId: projectId, activeRun: result.activeRun ? present(result.activeRun) : null, projectLoading: false, error: null });
+      this.patch({ selectedProjectId: projectId, activeHandoff: result.handoff, handoffUpdating: result.handoff?.generationStatus === "pending", activeRun: result.activeRun ? present(result.activeRun) : null, projectLoading: false, error: null });
     } catch (error) {
       this.patch({ projectLoading: false, error: error instanceof Error ? error.message : "Project loading failed." });
       throw error;
@@ -153,7 +154,16 @@ export class HttpJarvisClientService implements JarvisClientService {
   }
 
   async cancel(runId: string): Promise<RunPresentation> {
-    return this.setRun(present(await this.request(`/api/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST", body: "{}" }, runEnvelopeSchema)));
+    const cancelled = this.setRun(present(await this.request(`/api/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST", body: "{}" }, runEnvelopeSchema)));
+    this.watchRun(runId);
+    return cancelled;
+  }
+
+  async correctHandoff(projectId: string, correctionsInput: HandoffCorrections): Promise<ProjectHandoff> {
+    const corrections = HandoffCorrectionsSchema.parse(correctionsInput);
+    const result = await this.request(`/api/projects/${encodeURIComponent(projectId)}/handoff/corrections`, { method: "PATCH", body: JSON.stringify(corrections) }, z.object({ handoff: ProjectHandoffSchema }));
+    this.patch({ activeHandoff: result.handoff, handoffUpdating: false, error: null });
+    return result.handoff;
   }
 
   async cancelExecution(): Promise<RunPresentation> { throw new Error("Execution is not available until Gate 3."); }
@@ -221,8 +231,17 @@ export class HttpJarvisClientService implements JarvisClientService {
     const source = new EventSource(`${this.baseUrl}/api/runs/${encodeURIComponent(runId)}/events/stream`);
     const stop = (): void => { source.close(); this.activeStreams.delete(runId); };
     this.activeStreams.set(runId, stop);
-    const refresh = (): void => { void this.request(`/api/runs/${encodeURIComponent(runId)}`, undefined, runEnvelopeSchema).then((envelope) => { this.setRun(present(envelope)); if (["awaiting_approval", "completed", "failed", "cancelled", "cancelled_before_execution"].includes(envelope.run.status)) stop(); }).catch(() => undefined); };
-    for (const type of ["request_accepted", "loading_project_state", "checking_provider", "provider_ready", "inspection_cache_hit", "inspection_cache_miss", "repository_inspection_started", "repository_inspection_completed", "provider_invocation_started", "proposal_ready", "execution_accepted", "capturing_repository_baseline", "repository_baseline_completed", "execution_started", "provider_execution_started", "first_provider_event", "provider_message", "file_change", "command_started", "command_completed", "warning", "provider_execution_completed", "collecting_repository_changes", "repository_reconciliation_completed", "validation_detected", "validation_started", "validation_completed", "verification_result", "execution_completed", "execution_failed", "inspection_failed", "operation_interrupted"]) source.addEventListener(type, refresh);
+    const refreshProject = (): void => {
+      this.patch({ handoffUpdating: false });
+      const projectId = this.snapshot.selectedProjectId;
+      if (projectId) void this.selectProject(projectId).finally(stop);
+      else stop();
+    };
+    const handoffStarted = (): void => { this.patch({ handoffUpdating: true }); refresh(); };
+    const refresh = (): void => { void this.request(`/api/runs/${encodeURIComponent(runId)}`, undefined, runEnvelopeSchema).then((envelope) => { this.setRun(present(envelope)); if (envelope.run.status === "awaiting_approval") stop(); }).catch(() => undefined); };
+    for (const type of ["request_accepted", "loading_project_state", "checking_provider", "provider_ready", "inspection_cache_hit", "inspection_cache_miss", "repository_inspection_started", "repository_inspection_completed", "provider_invocation_started", "proposal_ready", "execution_accepted", "capturing_repository_baseline", "repository_baseline_completed", "execution_started", "provider_execution_started", "first_provider_event", "provider_message", "file_change", "command_started", "command_completed", "warning", "provider_execution_completed", "collecting_repository_changes", "repository_reconciliation_completed", "validation_detected", "validation_started", "validation_completed", "verification_result", "execution_completed", "execution_failed", "inspection_failed", "operation_interrupted", "deterministic_handoff_evidence_captured", "handoff_marked_potentially_stale", "user_correction_saved"]) source.addEventListener(type, refresh);
+    source.addEventListener("project_handoff_update_started", handoffStarted);
+    for (const type of ["project_handoff_ready", "project_handoff_fallback_created", "project_handoff_update_failed"]) source.addEventListener(type, refreshProject);
   }
 
   private setRun(activeRun: RunPresentation): RunPresentation { this.patch({ activeRun, error: null }); return activeRun; }

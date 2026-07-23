@@ -26,7 +26,7 @@ export class ExecutionService {
   private readonly active = new Set<string>();
   private readonly validation: ValidationService;
 
-  constructor(private readonly projects: ProjectRepository, private readonly runs: RunRepository, private readonly adapters: AgentAdapterRegistry, private readonly runner: ProcessRunner = new NodeProcessRunner(), validation?: ValidationService) { this.validation = validation ?? new ValidationService(runner); }
+  constructor(private readonly projects: ProjectRepository, private readonly runs: RunRepository, private readonly adapters: AgentAdapterRegistry, private readonly runner: ProcessRunner = new NodeProcessRunner(), validation?: ValidationService, private readonly onTerminal?: (runId: string) => void) { this.validation = validation ?? new ValidationService(runner); }
 
   async execute(runId: string): Promise<import("../../shared/runs.js").Run> {
     const initial = this.runs.require(runId);
@@ -82,10 +82,12 @@ export class ExecutionService {
       const result: ExecutionResultRecord = { summary: providerResult.summary, providerSessionId: providerResult.providerSessionId, succeeded: true, ...attribution };
       const completed = this.runs.completeExecution(runId, result, verification, post, providerResult.providerSessionId);
       this.projects.reconcileExecution(project.id, runId, result.summary, providerResult.providerSessionId);
+      this.onTerminal?.(runId);
       return completed;
     } catch (error) {
       const post = await this.snapshot(canonical).catch(() => undefined);
       this.runs.failExecution(runId, error, post, lastVerification);
+      this.onTerminal?.(runId);
       if (error instanceof ProviderUnavailableError) throw error;
       throw new ExecutionFailedError(error instanceof Error ? error.message : "Execution failed.");
     } finally { this.active.delete(runId); }

@@ -6,6 +6,9 @@ import { detectClaudeCode } from "./detection.js";
 import { NodeProcessRunner, type ProcessRunner } from "./process-runner.js";
 import { buildPlanningPrompt } from "./codex-planning-adapter.js";
 import { ProviderUnavailableError } from "./errors.js";
+import { HandoffNarrativeSchema } from "../../shared/handoffs.js";
+import type { HandoffGenerationRequest } from "../../shared/providers.js";
+import { buildHandoffPrompt, handoffJsonSchema } from "./codex-planning-adapter.js";
 
 const proposalBodySchema = PlanProposalFieldsSchema.omit({ revision: true, providerSessionId: true });
 const claudeResultSchema = z.object({ session_id: z.string().trim().min(1), result: z.string().optional(), structured_output: z.unknown().optional(), is_error: z.boolean().optional(), subtype: z.string().optional() }).passthrough();
@@ -57,6 +60,15 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     const summary = envelope.result?.trim() || "Claude Code returned no completion summary.";
     onEvent({ type: envelope.is_error ? "warning" : "provider_message", message: summary, occurredAt: new Date().toISOString(), data: { provider: "claude-code", subtype: envelope.subtype ?? null } });
     return { summary, providerSessionId: envelope.session_id, succeeded: envelope.is_error !== true && Boolean(envelope.result?.trim()) };
+  }
+
+  async generateHandoff(input: HandoffGenerationRequest): Promise<unknown> {
+    const args = ["-p", buildHandoffPrompt(input), "--output-format", "json", "--permission-mode", "plan", "--allowedTools", "Read", "Glob", "Grep", "--json-schema", JSON.stringify(handoffJsonSchema)];
+    if (input.providerSessionId) args.push("--resume", input.providerSessionId);
+    const result = await this.runner.run("claude", args, { cwd: input.repositoryPath, timeoutMs: 120_000 });
+    if (result.exitCode !== 0) throw new Error(`Claude Code handoff generation failed (${result.exitCode ?? "spawn error"}): ${result.stderr.trim() || "no stderr"}`);
+    const envelope = parseJsonOutput(result.stdout);
+    return HandoffNarrativeSchema.parse(envelope.structured_output ?? (envelope.result ? JSON.parse(envelope.result) : null));
   }
 
   async resume(sessionId: string, prompt: string, onEvent: AgentEventHandler): Promise<ExecutionResult> {

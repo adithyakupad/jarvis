@@ -9,6 +9,7 @@ import { ProjectRepository } from "../repositories/projects.js";
 import { InvalidRunTransitionError, RunRepository, StaleProposalRevisionError } from "../repositories/runs.js";
 import { canonicalizeRepositoryPath } from "../security/repository-path.js";
 import { repositoryFingerprint } from "./repository-fingerprint.js";
+import type { HandoffService } from "./handoffs.js";
 
 const instructionSchema = z.string().trim().min(1);
 export class ProjectNotFoundError extends Error {}
@@ -17,7 +18,7 @@ export class PlanningInspectionError extends Error {
 }
 
 export class PlanningService {
-  constructor(private readonly projects: ProjectRepository, private readonly runs: RunRepository, private readonly adapters: AgentAdapterRegistry, private readonly runner: ProcessRunner = new NodeProcessRunner()) {}
+  constructor(private readonly projects: ProjectRepository, private readonly runs: RunRepository, private readonly adapters: AgentAdapterRegistry, private readonly runner: ProcessRunner = new NodeProcessRunner(), private readonly handoffs?: HandoffService, private readonly onTerminal?: (runId: string) => void) {}
 
   acceptInspection(projectId: string, instructionInput: string): Run {
     const instruction = instructionSchema.parse(instructionInput);
@@ -77,12 +78,13 @@ export class PlanningService {
       const [availability, fingerprint] = await Promise.all([adapter.detect(), repositoryFingerprint(repositoryPath, this.runner)]);
       if (!availability.installed || availability.authenticated !== true) throw new ProviderUnavailableError(availability.detail);
       this.runs.recordExecutionEvent(run.id, "provider_ready", { provider: run.provider });
+      const handoff = await this.handoffs?.planningContext(project.id) ?? null;
       const priorFingerprint = this.runs.inspectionFingerprint(project.id);
-      const cacheHit = fingerprint !== null && fingerprint === priorFingerprint && revision > 1;
+      const cacheHit = fingerprint !== null && fingerprint === priorFingerprint && revision > 1 && handoff?.freshnessStatus !== "potentially_stale";
       this.runs.recordExecutionEvent(run.id, cacheHit ? "inspection_cache_hit" : "inspection_cache_miss", { reusable: cacheHit });
       this.runs.recordExecutionEvent(run.id, "repository_inspection_started", {});
       this.runs.recordExecutionEvent(run.id, "provider_invocation_started", { operation: "planning" });
-      const proposal = PlanProposalSchema.parse(await adapter.inspect({ projectId: project.id, repositoryPath, instruction: run.instruction, readOnly: true, proposalRevision: revision, providerSessionId: run.provider_session_id, previousProposal: run.proposal, modification, contextPacket, repositoryCacheHit: cacheHit, providerReadinessVerified: true }));
+      const proposal = PlanProposalSchema.parse(await adapter.inspect({ projectId: project.id, repositoryPath, instruction: run.instruction, readOnly: true, proposalRevision: revision, providerSessionId: run.provider_session_id, previousProposal: run.proposal, modification, contextPacket, projectHandoff: handoff, repositoryCacheHit: cacheHit, providerReadinessVerified: true }));
       this.runs.recordExecutionEvent(run.id, "repository_inspection_completed", { cacheHit });
       if (proposal.revision !== revision) throw new Error(`Proposal must be revision ${revision}, received ${proposal.revision}.`);
       if (revision > 1 && proposal.providerSessionId !== run.provider_session_id) throw new Error("Replanning changed the provider session ID.");
@@ -92,6 +94,7 @@ export class PlanningService {
       return completed;
     } catch (error) {
       this.runs.failInspection(run.id, error);
+      this.onTerminal?.(run.id);
       throw new PlanningInspectionError(run.id, error);
     }
   }

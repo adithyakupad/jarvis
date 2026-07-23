@@ -13,6 +13,8 @@
 - Added symptom/cause/next-action troubleshooting and honest limits around validation, interruption, startup coordination, and provider readiness.
 - Added a structured public bug-report template that asks for reproducible, sanitized evidence.
 - Reduced startup output to one user-facing URL while retaining a plain API readiness signal, and replaced internal "Core" branding with public-alpha language.
+- Added a concise **Where we left off** handoff that separates verified facts, user corrections, model inference, unresolved questions, and stale repository state.
+- Made the recommended next action advisory: it fills the next task field without submitting, approving, or executing.
 
 ## Application-copy or UX follow-ups
 

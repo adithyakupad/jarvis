@@ -2,6 +2,7 @@ import { PlanProposalSchema, RunSchema, type PlanProposal, type Run } from "../s
 import { ProjectSchema, type Project } from "../shared/projects.js";
 import type { ProviderAvailability } from "../shared/providers.js";
 import { ContextPacketSchema, type ContextPacket } from "../shared/context.js";
+import type { HandoffCorrections, ProjectHandoff } from "../shared/handoffs.js";
 import {
   InvalidLifecycleActionError,
   StaleProposalError,
@@ -86,7 +87,7 @@ function event(id: string, kind: SimulatedGate3Event["kind"], title: string, det
 }
 
 export class DeterministicMockJarvisClientService implements JarvisClientService {
-  private snapshot: JarvisSnapshot = { projects: [mk42()], providers: providerAvailability, activeRun: null, error: null, hydrationStatus: "ready", projectLoading: false, selectedProjectId: "mk-42" };
+  private snapshot: JarvisSnapshot = { projects: [mk42()], providers: providerAvailability, activeRun: null, activeHandoff: null, handoffUpdating: false, error: null, hydrationStatus: "ready", projectLoading: false, selectedProjectId: "mk-42" };
   private readonly listeners = new Set<(snapshot: JarvisSnapshot) => void>();
   private sequence = 1;
   private executionGeneration = 0;
@@ -178,6 +179,10 @@ export class DeterministicMockJarvisClientService implements JarvisClientService
     if (current.run.status === "failed") throw new InvalidLifecycleActionError("A failed planning run cannot be cancelled.");
     const cancelled = RunSchema.parse({ ...current.run, status: "cancelled", approval_decision: "cancel", approved_proposal_revision: null, completed_at: now() });
     return this.setRun({ ...current, run: cancelled, state: "cancelled", statusMessage: "Planning was cancelled. No execution started." });
+  }
+
+  async correctHandoff(_projectId: string, _corrections: HandoffCorrections): Promise<ProjectHandoff> {
+    throw new Error("Project handoff corrections are available only in real mode.");
   }
 
   async cancelExecution(runId: string): Promise<RunPresentation> {

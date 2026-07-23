@@ -87,6 +87,7 @@ export class ProjectRepository {
 
   delete(projectId: string): boolean {
     return this.database.transaction(() => {
+      this.database.prepare("DELETE FROM project_handoffs WHERE project_id = ?").run(projectId);
       this.database.prepare("DELETE FROM run_events WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)").run(projectId);
       this.database.prepare("DELETE FROM project_logs WHERE project_id = ?").run(projectId);
       this.database.prepare("DELETE FROM runs WHERE project_id = ?").run(projectId);

@@ -116,7 +116,7 @@ describe("HTTP client service", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/runs/run-1/proceed", expect.objectContaining({ method: "POST", body: JSON.stringify({ revision: 1 }) }));
   });
 
-  it("closes the live event stream after a terminal run is restored", async () => {
+  it("keeps the stream through handoff generation and closes when the handoff is restored", async () => {
     vi.stubGlobal("window", { localStorage: { getItem: () => null, setItem: () => undefined } });
     const approved = { ...run, status: "approved", approval_decision: "proceed", approved_proposal_revision: 1 };
     const completed = { ...approved, status: "completed", completed_at: "2026-07-21T13:01:00.000Z", verification: { repositoryValid: true, message: "Tests passed.", checks: [], validation: null } };
@@ -129,9 +129,15 @@ describe("HTTP client service", () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal("fetch", vi.fn(async (url: string) => response(url.endsWith("/proceed") ? { run: approved, revisions: [proposal], events: [] } : { run: completed, revisions: [proposal], events: [] })));
     const service = new HttpJarvisClientService(); await service.proceed("run-1", 1);
+    FakeEventSource.latest.listeners.get("project_handoff_update_started")?.();
+    expect(service.getSnapshot().handoffUpdating).toBe(true);
     FakeEventSource.latest.listeners.get("execution_completed")?.();
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(FakeEventSource.latest.closed).toBe(false);
+    FakeEventSource.latest.listeners.get("project_handoff_ready")?.();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     expect(FakeEventSource.latest.closed).toBe(true);
+    expect(service.getSnapshot().handoffUpdating).toBe(false);
     expect(service.getSnapshot().activeRun?.state).toBe("completed");
   });
 

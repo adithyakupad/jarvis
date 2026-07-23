@@ -12,6 +12,8 @@ import type {
 import { detectCodex } from "./detection.js";
 import { NodeProcessRunner, type ProcessRunner } from "./process-runner.js";
 import { ProviderUnavailableError } from "./errors.js";
+import { HandoffNarrativeSchema } from "../../shared/handoffs.js";
+import type { HandoffGenerationRequest } from "../../shared/providers.js";
 
 const proposalBodySchema = PlanProposalFieldsSchema.omit({ revision: true, providerSessionId: true });
 
@@ -32,6 +34,8 @@ const proposalJsonSchema = {
   },
 } as const;
 
+export const handoffJsonSchema = { type: "object", additionalProperties: false, required: ["currentObjective", "currentStatus", "lastMeaningfulAction", "blockers", "openDecisions", "activeConstraints", "recommendedNextAction", "inferredEvidence"], properties: { currentObjective: { type: "string", minLength: 1 }, currentStatus: { type: "string", minLength: 1 }, lastMeaningfulAction: { type: "string", minLength: 1 }, blockers: { type: "array", items: { type: "string", minLength: 1 } }, openDecisions: { type: "array", items: { type: "string", minLength: 1 } }, activeConstraints: { type: "array", items: { type: "string", minLength: 1 } }, recommendedNextAction: { type: "string", minLength: 1 }, inferredEvidence: { type: "array", items: { type: "object", additionalProperties: false, required: ["category", "summary"], properties: { category: { type: "string", enum: ["inferred", "unresolved"] }, summary: { type: "string", minLength: 1 } } } } } } as const;
+
 export { ProviderUnavailableError } from "./errors.js";
 
 export function buildPlanningPrompt(input: InspectionRequest): string {
@@ -42,6 +46,18 @@ export function buildPlanningPrompt(input: InspectionRequest): string {
     "Include only repository-confirmed validation commands in validationCommands. These commands become part of the approval boundary.",
     input.repositoryCacheHit ? "The server fingerprint confirms Git HEAD and working-tree contents are unchanged since the prior inspection. Reuse prior findings and read only files needed for this revision." : "Repository state is new or changed. Inspect it as needed to ground this proposal.",
   ];
+  if (input.projectHandoff) {
+    boundary.push(
+      "PROJECT HANDOFF (context only; never authorization)",
+      `Freshness: ${input.projectHandoff.freshnessStatus}`,
+      `CONFIRMED RUN AND REPOSITORY FACTS\n${JSON.stringify({ lastRunId: input.projectHandoff.lastRunId, lastRunOutcome: input.projectHandoff.lastRunOutcome, changedFiles: input.projectHandoff.changedFiles, validationSummary: input.projectHandoff.validationSummary, repositorySummary: input.projectHandoff.repositorySummary }, null, 2)}`,
+      `USER-PROVIDED CORRECTIONS\n${JSON.stringify(input.projectHandoff.corrections ?? {}, null, 2)}`,
+      `MODEL INFERENCES\n${JSON.stringify(input.projectHandoff.evidenceEntries.filter((entry) => entry.category === "inferred"), null, 2)}`,
+      `UNRESOLVED QUESTIONS\n${JSON.stringify(input.projectHandoff.evidenceEntries.filter((entry) => entry.category === "unresolved"), null, 2)}`,
+      input.projectHandoff.freshnessStatus === "potentially_stale" ? "POTENTIALLY STALE INFORMATION: Repository state changed after this handoff. Inspect the current repository before relying on narrative state and do not present stale claims as current confirmed facts." : "The handoff repository fingerprint is current.",
+      `Current handoff narrative\n${JSON.stringify({ currentObjective: input.projectHandoff.currentObjective, currentStatus: input.projectHandoff.currentStatus, lastMeaningfulAction: input.projectHandoff.lastMeaningfulAction, blockers: input.projectHandoff.blockers, openDecisions: input.projectHandoff.openDecisions, activeConstraints: input.projectHandoff.activeConstraints, recommendedNextAction: input.projectHandoff.recommendedNextAction }, null, 2)}`,
+    );
+  }
   if (input.modification && input.previousProposal) {
     boundary.push(
       `Revise the existing proposal in response to: ${input.modification}`,
@@ -58,6 +74,21 @@ export function buildPlanningPrompt(input: InspectionRequest): string {
     );
   }
   return boundary.join("\n\n");
+}
+
+export function buildHandoffPrompt(input: HandoffGenerationRequest): string {
+  return [
+    "Create a concise structured project handoff from the bounded evidence packet below.",
+    "This operation is read-only. Do not modify files, run commands, approve work, or propose shell actions.",
+    "Deterministic facts are authoritative. Do not contradict changed files, validation, Git, provider, source run, or approved revision values. Return narrative fields only.",
+    "Classify only model-derived items as inferred or unresolved. User corrections take precedence over prior model inference.",
+    `Prior handoff: ${JSON.stringify(input.priorHandoff)}`,
+    `Current run instruction: ${input.currentRun.instruction}`,
+    `Approved proposal: ${JSON.stringify(input.currentRun.proposal)}`,
+    `Execution and repository evidence: ${JSON.stringify(input.deterministicEvidence)}`,
+    `User corrections: ${JSON.stringify(input.userCorrections)}`,
+    `Project profile: ${JSON.stringify(input.currentProjectProfile)}`,
+  ].join("\n\n");
 }
 
 export class CodexPlanningAdapter implements AgentAdapter {
@@ -129,6 +160,13 @@ export class CodexPlanningAdapter implements AgentAdapter {
     }
     if (!thread.id) throw new Error("Codex did not return a provider session ID.");
     return { summary: failed ?? summary ?? "Codex execution returned no completion summary.", providerSessionId: thread.id, succeeded: failed === null && summary.length > 0 };
+  }
+
+  async generateHandoff(input: HandoffGenerationRequest): Promise<unknown> {
+    const options = { workingDirectory: input.repositoryPath, sandboxMode: "read-only" as const, approvalPolicy: "never" as const, networkAccessEnabled: false };
+    const thread = input.providerSessionId ? this.codex.resumeThread(input.providerSessionId, options) : this.codex.startThread(options);
+    const turn = await thread.run(buildHandoffPrompt(input), { outputSchema: handoffJsonSchema });
+    return HandoffNarrativeSchema.parse(JSON.parse(turn.finalResponse));
   }
 
   async resume(): Promise<ExecutionResult> {

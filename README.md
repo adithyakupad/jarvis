@@ -22,7 +22,7 @@ Task → inspect → propose → approve → edit → verify → remember
 - **Approve:** You may Proceed with the exact current revision, Revise plan, or Cancel.
 - **Edit:** Only after approval, the selected provider works inside the chosen repository.
 - **Verify:** JARVIS observes repository changes and independently runs a supported project test command.
-- **Remember:** Project state, proposal revisions, activity, changed paths, and validation evidence persist across restarts.
+- **Remember:** Project state, proposal revisions, activity, changed paths, validation evidence, and one concise project handoff persist across restarts.
 
 JARVIS owns project continuity, approval and execution state, repository evidence, validation, and chronological activity. Codex and Claude Code are replaceable planning and execution providers; they are not the source of JARVIS project truth.
 
@@ -127,6 +127,20 @@ While planning or executing, the workspace shows real persisted activity and ela
 
 Planning and Proceed acknowledge after their requested transition is persisted; long provider work then continues asynchronously in the local JARVIS process. SSE carries real chronological activity to the browser. JARVIS does not invent percentages or timer-based stages. One measured Codex smoke observed approximately 389 ms to accepted UI state, 20 seconds for planning, 377 ms for Proceed acknowledgement, 21 seconds for provider execution, and 239 ms for independent validation. These are examples, not latency guarantees.
 
+## Structured project handoffs
+
+After a run reaches a terminal state, JARVIS asynchronously updates **Where we left off**. This is the first production slice of Reverse Context: one bounded, canonical understanding of the selected project, not a transcript dump or general personal memory.
+
+The handoff records the current objective and status, latest meaningful action and outcome, observed changed files, independent validation, repository condition, blockers, open decisions, active constraints, and a recommended next action. Deterministic run, Git, file, and validation facts come from persisted JARVIS evidence. User corrections are labeled `user-provided` and take precedence over model inference. Model-derived statements remain classified as inferred or unresolved. Source-run and diagnostic details stay available behind disclosures.
+
+The current handoff is loaded by the server and automatically supplied to future planning for that project. The browser cannot replace it, and one project never receives another project’s handoff. Handoffs are bounded context, not authorization: they cannot approve a proposal, select a provider, change the repository path, supply commands, override validation, or start execution. **Use recommended next step** only fills the next task box.
+
+Use **Correct project state** to correct narrative fields such as the current objective, status, blockers, decisions, constraints, or recommended next action. Corrections remain auditable and survive restart. They cannot alter source runs, Git HEAD, changed-file evidence, provider sessions, proposal approvals, or validation results.
+
+JARVIS compares the handoff’s repository fingerprint with the current canonical path, Git HEAD, porcelain status, dirty tracked contents, visible untracked contents, and relevant project configuration. When these differ, the handoff becomes **potentially stale**. Historical context remains visible, but planning is told which information may be stale and performs fresh repository inspection. Non-Git repositories are handled conservatively and are never given a strong freshness guarantee.
+
+Handoff generation never delays or downgrades the terminal run. If model-assisted summarization fails, JARVIS preserves verified facts in a deterministic fallback and shows the generation error in local diagnostics.
+
 ## Review or undo changes
 
 Inspect the target repository yourself:
@@ -154,7 +168,7 @@ See [SECURITY.md](SECURITY.md) for the security policy.
 
 ## Data and privacy
 
-By default JARVIS stores its SQLite state at `data/jarvis.db`. It persists project settings, canonical repository paths, provider session IDs, instructions, proposal revisions, context, approval decisions, normalized events, repository snapshots, results, validation evidence, inspection fingerprints, and timing events.
+By default JARVIS stores its SQLite state at `data/jarvis.db`. It persists project settings, canonical repository paths, provider session IDs, instructions, proposal revisions, context, approval decisions, normalized events, repository snapshots, results, validation evidence, inspection fingerprints, timing events, the current structured handoff, and auditable user corrections.
 
 Use an isolated state directory:
 
@@ -246,7 +260,10 @@ Each entry gives the visible symptom, likely cause, and next action.
 - No automatic rollback, commit, push, or general-purpose recovery; users must review all changes.
 - No durable background worker; restart interrupts active in-process work.
 - Chronological activity can expose technical provider and repository event details.
-- No voice or general personal memory.
+- Structured handoffs cover one project’s current working context only; there is no cross-project or general personal memory, embeddings, or background monitoring.
+- Handoff narrative remains model-assisted and can be incomplete; deterministic run and repository evidence remains authoritative.
+- Non-Git repository freshness is conservative.
+- No voice.
 - No reliable mid-execution cancellation guarantee for every provider.
 - Models may misunderstand tasks or produce incorrect changes.
 

@@ -104,6 +104,18 @@ export function migrate(database: JarvisDatabase): void {
         fingerprint TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS project_handoffs (
+        project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        revision INTEGER NOT NULL,
+        source_run_id TEXT NOT NULL REFERENCES runs(id),
+        handoff_json TEXT NOT NULL,
+        corrections_json TEXT,
+        repository_fingerprint TEXT,
+        generation_status TEXT NOT NULL,
+        generated_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
     `);
 
     const runColumns = tableColumns(database, "runs");
@@ -136,5 +148,6 @@ export function migrate(database: JarvisDatabase): void {
       .run(4, new Date().toISOString());
     database.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(5, new Date().toISOString());
     database.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(6, new Date().toISOString());
+    database.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(7, new Date().toISOString());
   })();
 }

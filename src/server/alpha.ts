@@ -35,7 +35,7 @@ export async function startAlpha(options: AlphaOptions = {}): Promise<AlphaRunti
   if (!instance.owned) { process.stdout.write(`JARVIS is already running at ${instance.existingUrl}.\n`); return null; }
   const database = openDatabase(process.env.JARVIS_DATABASE_PATH ?? resolve(dataDirectory, "jarvis.db"));
   new RunRepository(database).interruptActiveRuns();
-  const app = buildApi({ database, adapters: new AgentAdapterRegistry([new CodexPlanningAdapter(), new ClaudeCodeAdapter()]), publicDirectory: resolve(root, "dist/client"), runtime: { appVersion, apiSchemaVersion: API_SCHEMA_VERSION, buildId, processId: process.pid, startedAt: instance.metadata.startedAt, bindHost: "127.0.0.1", port } });
+  const app = buildApi({ database, adapters: new AgentAdapterRegistry([new CodexPlanningAdapter(), new ClaudeCodeAdapter()]), publicDirectory: resolve(root, "dist/client"), reconcileHandoffs: true, runtime: { appVersion, apiSchemaVersion: API_SCHEMA_VERSION, buildId, processId: process.pid, startedAt: instance.metadata.startedAt, bindHost: "127.0.0.1", port } });
   try { await app.listen({ host: "127.0.0.1", port }); }
   catch (error) {
     await app.close().catch(() => undefined); database.close(); releaseInstance(instance);
