@@ -20,7 +20,7 @@ function AppShell({ view, setView, children, status, project }: { view: View; se
       <header className="global-header">
         <button className="brand" onClick={() => setView("projects")} aria-label="JARVIS, go to projects">
           <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
-          <span><strong>JARVIS</strong><small>LOCAL ALPHA / 0.1</small></span>
+          <span><strong>JARVIS</strong><small>LOCAL ALPHA / 0.2.0-alpha.1</small></span>
         </button>
         <div className="system-deck" role="status" aria-live="polite">
           <SystemStatus label="Project" value={project?.name ?? "No project"} mono />

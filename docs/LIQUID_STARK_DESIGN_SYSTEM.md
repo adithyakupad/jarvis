@@ -80,24 +80,44 @@ All animation and transition duration collapses under `prefers-reduced-motion: r
 - `SystemStatus`: label/value pair for project, provider, runtime, and operation state.
 - `StatusPill`: state text and redundant visual indicator.
 - `DiagnosticsDisclosure`: raw technical payload or evidence disclosure.
-- `HandoffCardShell`: display-only future handoff surface.
+- `HandoffCardShell`: display-only shell for the real structured project handoff.
 - Existing command composer, proposal, activity timeline, and validation markup use the same material classes without moving business logic.
 
 ## “Where we left off” integration
 
-After merging Structured Project Handoffs, render `HandoffCardShell` in the workspace’s center column before the command composer when durable handoff data exists. Map data explicitly:
+The workspace renders `HandoffCardShell` before the command composer and maps the durable Gate 4 handoff explicitly. The shell owns hierarchy and material only; `App.tsx` owns fetching, generation state, freshness, corrections, and actions.
 
 ```tsx
 <HandoffCardShell
   objective={handoff.currentObjective}
   status={handoff.currentStatus}
   lastMeaningfulAction={handoff.lastMeaningfulAction}
-  freshness={handoff.freshness}
+  freshness={handoff.freshnessStatus}
   blockers={handoff.blockers}
   openDecisions={handoff.openDecisions}
   recommendedNextAction={handoff.recommendedNextAction}
-  evidence={<pre>{JSON.stringify(handoff.evidence, null, 2)}</pre>}
+  evidence={<ClassifiedEvidence entries={handoff.evidenceEntries} />}
 />
 ```
 
-The component intentionally owns no fetching, validation, freshness calculation, or state transition. Those remain with the merged feature’s existing owner. If field names differ after rebase, adapt them at the render boundary instead of changing API contracts. Keep evidence collapsed by default and do not infer “fresh” or “verified” in the visual layer.
+The component intentionally owns no fetching, validation, freshness calculation, correction persistence, or state transition. Those remain with the application service and existing handoff owner.
+
+### Handoff hierarchy and evidence
+
+The card shows current objective, current status, last meaningful action, and freshness in its first reading layer. Last run outcome, changed files, independent validation, repository condition, blockers, decisions, constraints, generation status, and recommended next action follow. Source run, timestamps, classified evidence, and generation diagnostics remain available in `DiagnosticsDisclosure`.
+
+Deterministic repository and validation evidence uses direct factual language. Model-derived content remains labeled by its evidence category (`inferred` or `unresolved`), and saved corrections remain `user provided`. Styling must never imply that inferred text is independently verified.
+
+### Freshness and correction rules
+
+Current freshness is always visible in the card header. A potentially stale handoff also shows an amber text warning in the primary card body; it must never be hidden in a disclosure. The warning states that repository changes were detected and fresh inspection will occur before stored state is relied upon.
+
+`Correct project state` exposes only narrative fields. Repository fingerprint, Git state, source run, changed files, approval, provider session, and validation evidence are not editable. Save success uses a polite status message; save failure uses a visible alert. The form and disclosure remain keyboard accessible, with visible focus.
+
+`Use recommended next step` fills the existing command composer. It does not submit planning, approve a revision, execute, or change provider selection.
+
+### Validation authority and interaction
+
+The independent JARVIS validation panel remains visually stronger and semantically separate from provider narrative. Command, status, exit code, duration, stdout, and stderr remain readable, including unsupported, unavailable, timeout, interrupted, and failed states.
+
+All state meaning is textual as well as colored. Reduced-motion, forced-colors, skip-navigation, focus-visible, and opaque no-backdrop-filter behavior are release requirements. Disclosures use native `details`/`summary`; primary controls and stale warnings are never placed behind them.

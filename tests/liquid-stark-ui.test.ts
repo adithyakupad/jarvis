@@ -30,6 +30,34 @@ describe("Liquid Stark client presentation", () => {
     }
   });
 
+  it("renders the real structured handoff through the visual shell", () => {
+    expect(app).toContain("<HandoffCardShell");
+    expect(app).toContain("objective={handoff.currentObjective}");
+    expect(app).toContain("status={handoff.currentStatus}");
+    expect(app).toContain("freshness={handoff.freshnessStatus.replaceAll");
+    expect(app).toContain("handoff.evidenceEntries.map");
+  });
+
+  it("keeps stale state prominent and deterministic facts outside correction controls", () => {
+    expect(app).toContain('className="handoff-stale-warning" role="alert"');
+    expect(app).toContain("Repository changes were detected after this handoff was created.");
+    expect(app).not.toContain('name="changedFiles"');
+    expect(app).not.toContain('name="validationSummary"');
+    expect(app).not.toContain('name="repositorySummary"');
+  });
+
+  it("uses the recommended step only to populate the redesigned composer", () => {
+    expect(app).toContain("onUseNextStep={(next) => setInstruction(next)}");
+    expect(app).toContain("onClick={() => onUseNextStep(handoff.recommendedNextAction)}");
+    expect(app).not.toContain("onUseNextStep={service.inspect");
+  });
+
+  it("keeps corrections in the existing persistence handler and visibly classifies success", () => {
+    expect(app).toContain("service.correctHandoff(projectId, corrections)");
+    expect(app).toContain("saved as user-provided context");
+    expect(app).toContain('role={saveFailed ? "alert" : "status"}');
+  });
+
   it("supports reduced motion and a no-backdrop-filter fallback", () => {
     expect(styles).toContain("@media (prefers-reduced-motion: reduce)");
     expect(styles).toContain("@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px)))");
