@@ -232,7 +232,31 @@ export class DeterministicMockJarvisClientService implements JarvisClientService
       { id: "diagnostics", label: "Armor diagnostics", status: "passed", evidence: "12 focused checks passed" },
       { id: "scope", label: "Scope reconciliation", status: "passed", evidence: "2 changed files match proposal revision scope" },
     ];
-    const completedRun = RunSchema.parse({ ...run, completed_at: now() });
+    const completedAt = now();
+    const completedRun = RunSchema.parse({
+      ...run,
+      completed_at: completedAt,
+      verification: {
+        repositoryValid: true,
+        message: "JARVIS independently ran the focused project tests and observed a passing result.",
+        checks: [{ command: "npm test -- diagnostics", exitCode: 0, durationMs: 842, output: "12 focused checks passed", passed: true }],
+        validation: {
+          status: "passed",
+          packageManager: "npm",
+          executable: "npm",
+          args: ["test", "--", "diagnostics"],
+          commandDisplay: "npm test -- diagnostics",
+          startedAt: new Date(new Date(completedAt).getTime() - 842).toISOString(),
+          completedAt,
+          exitCode: 0,
+          signal: null,
+          stdout: "12 focused checks passed",
+          stderr: "",
+          durationMs: 842,
+          failureCategory: null,
+        },
+      },
+    });
     this.setRun({ ...this.requireRun(run.id), run: completedRun, state: "completed", events: [...events, event("e5", "verification", "Verification complete", "All evidence supports completion.")], checks, changedFiles: ["src/armor/diagnostics.ts", "tests/armor/diagnostics.test.ts"], statusMessage: "Verified complete. MK 42 is ready for the next validation cycle.", isGate3Simulation: true });
     this.patch({ projects: this.snapshot.projects.map((project) => project.id === run.project_id ? ProjectSchema.parse({ ...project, status: "completed", current_phase: "Diagnostics validated", latest_result: "Focused armor diagnostics passed with approved scope reconciled", next_action: "Review verification evidence", updated_at: now() }) : project) });
   }
