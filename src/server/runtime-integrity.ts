@@ -79,7 +79,14 @@ export function releaseInstance(result: IntegrityResult): void {
   if (!result.owned) return;
   try {
     const current = InstanceLockSchema.parse(JSON.parse(readFileSync(result.lockPath, "utf8")));
-    if (current.pid === result.metadata.pid && current.startedAt === result.metadata.startedAt) unlinkSync(result.lockPath);
+    if (
+      current.pid === result.metadata.pid
+      && current.startedAt === result.metadata.startedAt
+      && current.port === result.metadata.port
+      && current.appVersion === result.metadata.appVersion
+      && current.apiSchemaVersion === result.metadata.apiSchemaVersion
+      && current.buildId === result.metadata.buildId
+    ) unlinkSync(result.lockPath);
   } catch { /* Never remove a lock that cannot be proven to be ours. */ }
 }
 

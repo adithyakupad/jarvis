@@ -66,4 +66,40 @@ describe("local runtime integrity", () => {
     await expect(acquireInstance(root, desired, { probe: async () => ({ kind: "unknown" }) })).rejects.toMatchObject({ category: "unknown_process", message: expect.stringContaining("occupied") });
     expect(existsSync(join(root, INSTANCE_LOCK_NAME))).toBe(false);
   });
+
+  it("treats an already missing owned lock as harmless", async () => {
+    const root = directory();
+    const result = await acquireInstance(root, desired, { pid: 88, probe: async () => ({ kind: "unavailable" }) });
+    releaseInstance(result);
+    expect(() => releaseInstance(result)).not.toThrow();
+  });
+
+  it("does not delete malformed or replacement locks during owned cleanup", async () => {
+    const root = directory(); const lockPath = join(root, INSTANCE_LOCK_NAME);
+    const result = await acquireInstance(root, desired, { pid: 88, probe: async () => ({ kind: "unavailable" }) });
+
+    writeFileSync(lockPath, "not-json");
+    releaseInstance(result);
+    expect(readFileSync(lockPath, "utf8")).toBe("not-json");
+
+    const replacement = { ...result.metadata, pid: 99, startedAt: "2026-07-22T12:00:02.000Z" };
+    writeFileSync(lockPath, JSON.stringify(replacement));
+    releaseInstance(result);
+    expect(JSON.parse(readFileSync(lockPath, "utf8"))).toEqual(replacement);
+  });
+
+  it("requires every available ownership field before deleting a lock", async () => {
+    for (const replacement of [
+      { port: desired.port + 1 },
+      { appVersion: "different" },
+      { apiSchemaVersion: API_SCHEMA_VERSION + 1 },
+      { buildId: "different" },
+    ]) {
+      const root = directory(); const lockPath = join(root, INSTANCE_LOCK_NAME);
+      const result = await acquireInstance(root, desired, { pid: 88, probe: async () => ({ kind: "unavailable" }) });
+      writeFileSync(lockPath, JSON.stringify({ ...result.metadata, ...replacement }));
+      releaseInstance(result);
+      expect(existsSync(lockPath)).toBe(true);
+    }
+  });
 });

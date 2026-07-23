@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { z } from "zod";
 
 import { openDatabase } from "./database/connection.js";
+import { createShutdownController, registerGracefulSignalHandlers } from "./graceful-shutdown.js";
 import { buildApi } from "./http/app.js";
 import { ClaudeCodeAdapter } from "./providers/claude-code-adapter.js";
 import { CodexPlanningAdapter } from "./providers/codex-planning-adapter.js";
@@ -33,9 +34,17 @@ export async function startAlpha(options: AlphaOptions = {}): Promise<AlphaRunti
   const buildId = options.buildId ?? process.env.JARVIS_BUILD_ID ?? DEVELOPMENT_BUILD_ID;
   const instance = options.acquiredInstance ?? await acquireInstance(dataDirectory, { port, appVersion, apiSchemaVersion: API_SCHEMA_VERSION, buildId }, options.integrityDependencies);
   if (!instance.owned) { process.stdout.write(`JARVIS is already running at ${instance.existingUrl}.\n`); return null; }
-  const database = openDatabase(process.env.JARVIS_DATABASE_PATH ?? resolve(dataDirectory, "jarvis.db"));
-  new RunRepository(database).interruptActiveRuns();
-  const app = buildApi({ database, adapters: new AgentAdapterRegistry([new CodexPlanningAdapter(), new ClaudeCodeAdapter()]), publicDirectory: resolve(root, "dist/client"), reconcileHandoffs: true, runtime: { appVersion, apiSchemaVersion: API_SCHEMA_VERSION, buildId, processId: process.pid, startedAt: instance.metadata.startedAt, bindHost: "127.0.0.1", port } });
+  let database: ReturnType<typeof openDatabase> | undefined;
+  let app: ReturnType<typeof buildApi>;
+  try {
+    database = openDatabase(process.env.JARVIS_DATABASE_PATH ?? resolve(dataDirectory, "jarvis.db"));
+    new RunRepository(database).interruptActiveRuns();
+    app = buildApi({ database, adapters: new AgentAdapterRegistry([new CodexPlanningAdapter(), new ClaudeCodeAdapter()]), publicDirectory: resolve(root, "dist/client"), reconcileHandoffs: true, runtime: { appVersion, apiSchemaVersion: API_SCHEMA_VERSION, buildId, processId: process.pid, startedAt: instance.metadata.startedAt, bindHost: "127.0.0.1", port } });
+  } catch (error) {
+    database?.close();
+    releaseInstance(instance);
+    throw error;
+  }
   try { await app.listen({ host: "127.0.0.1", port }); }
   catch (error) {
     await app.close().catch(() => undefined); database.close(); releaseInstance(instance);
@@ -47,15 +56,19 @@ export async function startAlpha(options: AlphaOptions = {}): Promise<AlphaRunti
     }
     throw error;
   }
-  let closing = false;
+  const shutdown = createShutdownController({
+    closeServer: () => app.close(),
+    closeOwnedResources: () => database.close(),
+    releaseOwnedLock: () => releaseInstance(instance),
+    timeoutMs: 3_000,
+  });
+  let unregisterSignals = (): void => undefined;
   const close = async (): Promise<void> => {
-    if (closing) return; closing = true;
-    releaseInstance(instance);
-    const timeout = setTimeout(() => { process.exitCode = 1; }, 3_000); timeout.unref();
-    try { await app.close(); database.close(); } finally { clearTimeout(timeout); }
+    await shutdown.close();
+    unregisterSignals();
   };
   if (options.registerSignals !== false) {
-    process.once("SIGINT", () => void close()); process.once("SIGTERM", () => void close()); process.once("exit", () => releaseInstance(instance));
+    unregisterSignals = registerGracefulSignalHandlers(shutdown);
   }
   const url = `http://127.0.0.1:${port}`;
   process.stdout.write(`JARVIS ${appVersion}\nAPI schema: ${API_SCHEMA_VERSION}\nData directory: ${dataDirectory}\nListening: ${url}\nPress Ctrl+C to stop JARVIS.\n`);
